@@ -1,0 +1,233 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================
+   QRIVARA — Theme tokens
+   Colors are stored as space-separated RGB channels so Tailwind
+   opacity modifiers (e.g. bg-primary/40) work everywhere.
+   ============================================================ */
+
+/* QRIVARA "Quantum Metal" — aligned to qrivara.tech: a warm near-black
+   canvas with the brand's signature copper/bronze primary, gold + purple
+   accents, and slate-warm text. Elevation comes from the surface ladder.
+   Identity = copper/gold/purple; semantic states stay functional. */
+:root,
+.dark {
+  --bg-deep: 9 9 8; /* #090908 — deepest backdrop */
+  --bg: 15 15 14; /* #0F0F0E — warm near-black page canvas */
+  --surface: 22 21 20; /* #161514 — card */
+  --surface-2: 31 29 27; /* #1F1D1B */
+  --surface-3: 42 39 36; /* #2A2724 */
+  --border: 44 41 38; /* #2C2926 — hairline */
+  --border-strong: 62 57 52; /* #3E3934 */
+
+  --fg: 245 243 239; /* #F5F3EF — warm ink */
+  --fg-muted: 178 171 162; /* #B2ABA2 */
+  --fg-subtle: 124 117 108; /* #7C756C */
+
+  --primary: 200 128 58; /* #C8803A — Copper (brand signature) */
+  --primary-fg: 26 18 10; /* dark warm text on copper */
+  --primary-soft: 46 34 21; /* tinted surface for primary */
+
+  --cyan: 224 178 85; /* #E0B255 — Gold (2nd accent, "cyan" slot) */
+  --violet: 180 124 240; /* #B47CF0 — Quantum Purple */
+  --success: 64 192 138; /* #40C08A — Emerald */
+  --warning: 240 138 60; /* #F08A3C — Burnt orange */
+  --error: 240 89 75; /* #F0594B — Crimson */
+
+  color-scheme: dark;
+}
+
+.light {
+  --bg-deep: 235 231 224;
+  --bg: 248 246 242; /* #F8F6F2 — warm off-white */
+  --surface: 255 255 255;
+  --surface-2: 250 248 244;
+  --surface-3: 244 240 234;
+  --border: 230 225 217; /* #E6E1D9 */
+  --border-strong: 208 201 190;
+
+  --fg: 28 24 19; /* #1C1813 — warm near-black ink */
+  --fg-muted: 92 84 74;
+  --fg-subtle: 132 123 111;
+
+  --primary: 166 94 38; /* #A65E26 — deeper copper for contrast on white */
+  --primary-fg: 255 255 255;
+  --primary-soft: 246 235 222;
+
+  --cyan: 161 120 38; /* #A17826 — gold */
+  --violet: 138 79 214; /* #8A4FD6 — purple */
+  --success: 13 145 100; /* #0D9164 */
+  --warning: 200 96 24; /* #C86018 */
+  --error: 209 53 42; /* #D1352A */
+
+  color-scheme: light;
+}
+
+@layer base {
+  * {
+    border-color: rgb(var(--border));
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-bg text-fg font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
+    letter-spacing: -0.011em; /* refined, Linear-grade text rhythm */
+  }
+
+  /* Display headings carry tight negative tracking for a technical, luxe feel */
+  .font-display {
+    letter-spacing: -0.021em;
+  }
+
+  ::selection {
+    background-color: rgb(var(--primary) / 0.32);
+    color: rgb(var(--fg));
+  }
+
+  /* Scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--border-strong)) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--border-strong));
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(var(--fg-subtle));
+    background-clip: content-box;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--primary) / 0.7);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Frosted panel used across the app shell */
+  .glass {
+    background-color: rgb(var(--surface) / 0.72);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+  }
+
+  .card {
+    @apply rounded-2xl border border-line bg-surface shadow-card;
+  }
+
+  .gradient-text {
+    @apply bg-brand-gradient bg-clip-text text-transparent;
+  }
+
+  /* Hairline gradient ring used on premium cards */
+  .ring-hairline {
+    box-shadow:
+      inset 0 1px 0 0 rgb(255 255 255 / 0.05),
+      inset 0 0 0 1px rgb(255 255 255 / 0.02);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .bg-dots {
+    background-image: radial-gradient(
+      rgb(var(--fg) / 0.08) 1px,
+      transparent 1px
+    );
+    background-size: 22px 22px;
+  }
+}
+
+/* Range slider (used by ui/Form Slider) */
+.qr-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+}
+.qr-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid rgb(var(--primary));
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.35);
+  transition: transform 0.15s ease;
+}
+.qr-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.qr-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid rgb(var(--primary));
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.35);
+}
+
+/* React Flow theming overrides (used by the Visual Designer) */
+.react-flow {
+  --xy-edge-stroke-default: rgb(var(--border-strong));
+  --xy-edge-stroke-selected-default: rgb(var(--cyan));
+  --xy-node-border-default: transparent;
+  background: transparent;
+}
+.react-flow__attribution {
+  display: none;
+}
+.react-flow__controls {
+  box-shadow: none !important;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgb(var(--border));
+}
+.react-flow__controls-button {
+  background: rgb(var(--surface-2)) !important;
+  border-bottom: 1px solid rgb(var(--border)) !important;
+  color: rgb(var(--fg-muted)) !important;
+  fill: currentColor !important;
+}
+.react-flow__controls-button:hover {
+  background: rgb(var(--surface-3)) !important;
+  color: rgb(var(--fg)) !important;
+}
+.react-flow__minimap {
+  background: rgb(var(--surface)) !important;
+  border-radius: 12px;
+  border: 1px solid rgb(var(--border));
+}
+
+/* Monaco fits its container */
+.monaco-editor,
+.monaco-editor .overflow-guard {
+  border-radius: 0 0 1rem 1rem;
+}

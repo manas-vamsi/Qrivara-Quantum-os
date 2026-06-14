@@ -1,0 +1,2198 @@
+arXiv:2309.17168v4 [quant-ph] 29 Mar 2024
+
+Charge-parity switching effects and optimisation of
+transmon-qubit design parameters
+Miha Papic 1,2,*, Jani Tuorila3, Adrian Auer1, Ine´ s de Vega1,2, and Amin Hosseinkhani1,+
+1IQM, Georg-Brauchle-Ring 23-25, 80992 Munich, Germany 2Department of Physics and Arnold Sommerfeld Center for Theoretical Physics, Ludwig-Maximilians-Universita¨ t Mu¨ nchen, Theresienstr. 37, 80333 Munich, Germany 3IQM, Keilaranta 19, 02150 Espoo, Finland *miha.papic@meetiqm.com +amin.hosseinkhani@meetiqm.com
+ABSTRACT
+Enhancing the performance of noisy quantum processors requires improving our understanding of error mechanisms and the ways to overcome them. A judicious selection of qubit design parameters, guided by an accurate error model, plays a pivotal role in improving the performance of quantum processors. In this study, we identify optimal ranges for qubit design parameters, grounded in comprehensive noise modeling. To this end, we also analyze a previously unexplored error mechanism that can perturb two-qubit gates due to charge-parity switches caused by quasiparticles. Due to the utilization of the higher levels of a transmon, where the charge dispersion is significantly larger, a charge-parity switch will affect the conditional phase of the two-qubit gate. We derive an analytical expression for the infidelity of a diabatic controlled-Z gate and see effects of similar magnitude in adiabatic controlled-phase gates in the tunable coupler architecture. Moreover, we show that the effect of a charge-parity switch can be the dominant quasiparticle-related error source of a two-qubit gate. We also demonstrate that charge-parity switches induce a residual longitudinal interaction between qubits in a tunable-coupler circuit. We present a performance metric for quantum circuit execution, encompassing the fidelity and number of single and two-qubit gates in an algorithm, as well as the state preparation fidelity. This comprehensive metric, coupled with a detailed noise model, empowers us to determine an optimal range for the qubit design parameters. Substantiating our findings through exact numerical simulations, we establish that fabricating quantum chips within this optimal parameter range not only augments the performance metric but also ensures its continued improvement with the enhancement of individual qubit coherence properties. Our systematic analysis offers insights and serves as a guiding framework for the development of the next generation of transmon-based quantum processors.
+Introduction
+While quantum processors continue to progress towards practical use, the errors present in current systems are still the most limiting factor. A dominant error in superconductor-based quantum computers is decoherence. There have been several proposals to mitigate it, either by designing new qubit types1­3 or by further optimizing the existing designs, typically focusing on increasing the coherence times of the circuit4­6. However, in the latter case, one often encounters trade-offs between different circuit properties. For example in transmon qubits, which have emerged as the most widely-used qubit type in large-scale experiments7­11, the suppression of charge noise comes at the cost of low anharmonicity which sets a lower bound on the duration of single-qubit operations12.
+This illustrates the importance of understanding the different errors affecting the quantum hardware, as well as the fact that an informed design of the circuit parameters must consider a plethora of possible error sources which are not necessarily limited only to the coherence properties of the circuit, but also include leakage errors in single qubit gates due to low anharmonicity, state preparation errors due to finite-temperature heating effects13­15, as well as the parity-switching error presented in this manuscript. To elaborate further, only taking into account the coherence properties of the transmon and the low anharmonicity, one way to achieve better performance is to increase the transmon anharmonicity (in order to suppress potential leakage errors) while keeping the frequency of the transmon fixed. The latter condition, under the assumption of constant quality factors, ensures the coherence properties of the circuit remain unchanged. However this inadvertently leads into the regime where the transmon charge dispersion becomes more significant. One of the errors that is exponentially more pronounced in the low EJ/EC regime is related to the presence of electron-like excitations of the superconducting condensate, referred to as quasiparticles and the charge-parity of the transmon, thus prompting us to analyze these effects further so that a trade-off between the different error sources can be made.
+
+a
+
+<latexit sha1_base64="mT5DLyVGb5k0iB8p8mjPWgz61Vg=">AAAB8nicbVDLSgNBEJz1GeMr6tHLYBC8GHaDr2PQi8cI5gGbNcxOepMhszPLzKwQ1nyGFw+KePVrvPk3TpI9aGJBQ1HVTXdXmHCmjet+O0vLK6tr64WN4ubW9s5uaW+/qWWqKDSo5FK1Q6KBMwENwwyHdqKAxCGHVji8mfitR1CaSXFvRgkEMekLFjFKjJX8p+rDaUcR0efQLZXdijsFXiReTsooR71b+ur0JE1jEIZyorXvuYkJMqIMoxzGxU6qISF0SPrgWypIDDrIpieP8bFVejiSypYweKr+nshIrPUoDm1nTMxAz3sT8T/PT010FWRMJKkBQWeLopRjI/Hkf9xjCqjhI0sIVczeiumAKEKNTaloQ/DmX14kzWrFu6ic352Va9d5HAV0iI7QCfLQJaqhW1RHDUSRRM/oFb05xnlx3p2PWeuSk88coD9wPn8A3auRAA==</latexit>
+|2
+
+i
+
+| 2+ <latexitsha1_base64="N7T5PobjcVb2kzFIkLJWIIRaRxU=">AAAB8nicbVDLSgNBEJz1GeMr6tHLYBAEIewGX8egF48RzAM2a5id9CZDZmeWmVkhrPkMLx4U8erXePNvnCR70MSChqKqm+6uMOFMG9f9dpaWV1bX1gsbxc2t7Z3d0t5+U8tUUWhQyaVqh0QDZwIahhkO7UQBiUMOrXB4M/Fbj6A0k+LejBIIYtIXLGKUGCv5T9WH044ios+hWyq7FXcKvEi8nJRRjnq39NXpSZrGIAzlRGvfcxMTZEQZRjmMi51UQ0LokPTBt1SQGHSQTU8e42Or9HAklS1h8FT9PZGRWOtRHNrOmJiBnvcm4n+en5roKsiYSFIDgs4WRSnHRuLJ/7jHFFDDR5YQqpi9FdMBUYQam1LRhuDNv7xImtWKd1E5vzsr167zOAroEB2hE+ShS1RDt6iOGogiiZ7RK3pzjPPivDsfs9YlJ585QH/gfP4A2pWQ/g==</latexit>
+
+i
+
+E2+ <latexitsha1_base64="j7e43Qa/jA5YFo6EbNktD2yYqh0=">AAACAHicbVDLSsNAFJ3UV62vqAsXbgaLUJGWpPhaFkVwWcE+oI1hMp20QyeTMDMRSujGX3HjQhG3foY7/8ZJmoVWDwyce8693LnHixiVyrK+jMLC4tLySnG1tLa+sbllbu+0ZRgLTFo4ZKHoekgSRjlpKaoY6UaCoMBjpOONr1K/80CEpCG/U5OIOAEacupTjJSWXHPv2q3fH1e4OzyCVZgW1axwzbJVszLAv8TOSRnkaLrmZ38Q4jggXGGGpOzZVqScBAlFMSPTUj+WJEJ4jIakpylHAZFOkh0whYdaGUA/FPpxBTP150SCAikngac7A6RGct5Lxf+8Xqz8CyehPIoV4Xi2yI8ZVCFM04ADKghWbKIJwoLqv0I8QgJhpTMr6RDs+ZP/kna9Zp/VTm9Pyo3LPI4i2AcHoAJscA4a4AY0QQtgMAVP4AW8Go/Gs/FmvM9aC0Y+swt+wfj4BonSk9I=</latexit>
+
+(ng
+
+)
+
+b
+E2 (ng)
+
+| 1+ <latexitsha1_base64="2H96iNjYR70XfB3LS/Q/eezRHsk=">AAAB8nicbVDLSgNBEOyNrxhfUY9eBoMgCGFXfB2DXjxGMA/YrGF2MpsMmZ1ZZmaFsOYzvHhQxKtf482/cZLsQRMLGoqqbrq7woQzbVz32yksLa+srhXXSxubW9s75d29ppapIrRBJJeqHWJNORO0YZjhtJ0oiuOQ01Y4vJn4rUeqNJPi3owSGsS4L1jECDZW8p+8h5OOwqLPabdccavuFGiReDmpQI56t/zV6UmSxlQYwrHWvucmJsiwMoxwOi51Uk0TTIa4T31LBY6pDrLpyWN0ZJUeiqSyJQyaqr8nMhxrPYpD2xljM9Dz3kT8z/NTE10FGRNJaqggs0VRypGRaPI/6jFFieEjSzBRzN6KyAArTIxNqWRD8OZfXiTN06p3UT2/O6vUrvM4inAAh3AMHlxCDW6hDg0gIOEZXuHNMc6L8+58zFoLTj6zD3/gfP4A2QiQ/Q==</latexit>
+
+i
+
+<latexit sha1_base64="M6EHLwP5YcfMB14of7Xa1bn8e18=">AAAB8nicbVDLSgNBEOyNrxhfUY9eBoPgxbArvo5BLx4jmAds1jA7mU2GzM4sM7NCWPMZXjwo4tWv8ebfOEn2oIkFDUVVN91dYcKZNq777RSWlldW14rrpY3Nre2d8u5eU8tUEdogkkvVDrGmnAnaMMxw2k4UxXHIaSsc3kz81iNVmklxb0YJDWLcFyxiBBsr+U/ew0lHYdHntFuuuFV3CrRIvJxUIEe9W/7q9CRJYyoM4Vhr33MTE2RYGUY4HZc6qaYJJkPcp76lAsdUB9n05DE6skoPRVLZEgZN1d8TGY61HsWh7YyxGeh5byL+5/mpia6CjIkkNVSQ2aIo5chINPkf9ZiixPCRJZgoZm9FZIAVJsamVLIhePMvL5LmadW7qJ7fnVVq13kcRTiAQzgGDy6hBrdQhwYQkPAMr/DmGOfFeXc+Zq0FJ5/Zhz9wPn8A3B6Q/w==</latexit>
+|1
+
+i
+
+d
+
+c
+
+<latexit sha1_base64="ZdCbwO50u+12ts1e7IdYOP4dRkk=">AAACBXicbVDLSgMxFM3UV62vUZe6CBahgpQZ8bUsuHHZgn1AZxgyaaYNTTJjkhHK0I0bf8WNC0Xc+g/u/BszbRfaeiDhcM693HtPmDCqtON8W4Wl5ZXVteJ6aWNza3vH3t1rqTiVmDRxzGLZCZEijArS1FQz0kkkQTxkpB0Ob3K//UCkorG406OE+Bz1BY0oRtpIgX3ocaQHkmeNNKQaeqfQHed/5T5wTwK77FSdCeAicWekDGaoB/aX14txyonQmCGluq6TaD9DUlPMyLjkpYokCA9Rn3QNFYgT5WeTK8bw2Cg9GMXSPKHhRP3dkSGu1IiHpjLfWc17ufif1011dO1nVCSpJgJPB0UpgzqGeSSwRyXBmo0MQVhSsyvEAyQR1ia4kgnBnT95kbTOqu5l9aJxXq5VZnEUwQE4AhXggitQA7egDpoAg0fwDF7Bm/VkvVjv1se0tGDNevbBH1ifP6lflqg=</latexit>
+Qubit
+
+1
+
+(q1)
+
+<latexit sha1_base64="33ynzNKCP2zqTiB5fbb+VQPOnqU=">AAACBXicbVDLSgMxFM3UV62vUZe6CBahgpSZ4mtZcOOyBfuAzjBk0rQNTTJjkhHK0I0bf8WNC0Xc+g/u/Bsz7Sy0eiDhcM693HtPGDOqtON8WYWl5ZXVteJ6aWNza3vH3t1rqyiRmLRwxCLZDZEijArS0lQz0o0lQTxkpBOOrzO/c0+kopG41ZOY+BwNBR1QjLSRAvvQ40iPJE+bSUg19E5hbZr9lbugdhLYZafqzAD/EjcnZZCjEdifXj/CCSdCY4aU6rlOrP0USU0xI9OSlygSIzxGQ9IzVCBOlJ/OrpjCY6P04SCS5gkNZ+rPjhRxpSY8NJXZzmrRy8T/vF6iB1d+SkWcaCLwfNAgYVBHMIsE9qkkWLOJIQhLanaFeIQkwtoEVzIhuIsn/yXtWtW9qJ43z8r1Sh5HERyAI1ABLrgEdXADGqAFMHgAT+AFvFqP1rP1Zr3PSwtW3rMPfsH6+Aascpaq</latexit>
+Qubit
+
+2
+
+(q2)
+
+<latexit sha1_base64="hr/Wve9Qq1YReTMc8mTMG50xoys=">AAAB8XicbVBNS8NAEJ34WetX1aOXxSJ4KolI9Vj04rGC/cA2lM120i7dbMLuRiix/8KLB0W8+m+8+W/ctjlo64OBx3szzMwLEsG1cd1vZ2V1bX1js7BV3N7Z3dsvHRw2dZwqhg0Wi1i1A6pRcIkNw43AdqKQRoHAVjC6mfqtR1Sax/LejBP0IzqQPOSMGis9PHleV1E5ENgrld2KOwNZJl5OypCj3it9dfsxSyOUhgmqdcdzE+NnVBnOBE6K3VRjQtmIDrBjqaQRaj+bXTwhp1bpkzBWtqQhM/X3REYjrcdRYDsjaoZ60ZuK/3md1IRXfsZlkhqUbL4oTAUxMZm+T/pcITNibAllittbCRtSRZmxIRVtCN7iy8ukeV7xqpXq3UW5dp3HUYBjOIEz8OASanALdWgAAwnP8ApvjnZenHfnY9664uQzR/AHzucPK5GQnA==</latexit>
+|11i
+
+<latexit sha1_base64="kmCqQiUCig1lmVASXsphte0Wnhw=">AAAB8XicbVDLTgJBEOzFF+IL9ehlIjHxRHaJQY9ELx4xkUeEDZkdGpgwO7uZmTUhK3/hxYPGePVvvPk3DrAHBSvppFLVne6uIBZcG9f9dnJr6xubW/ntws7u3v5B8fCoqaNEMWywSESqHVCNgktsGG4EtmOFNAwEtoLxzcxvPaLSPJL3ZhKjH9Kh5APOqLHSw5Nb6SoqhwJ7xZJbducgq8TLSAky1HvFr24/YkmI0jBBte54bmz8lCrDmcBpoZtojCkb0yF2LJU0RO2n84un5MwqfTKIlC1pyFz9PZHSUOtJGNjOkJqRXvZm4n9eJzGDKz/lMk4MSrZYNEgEMRGZvU/6XCEzYmIJZYrbWwkbUUWZsSEVbAje8surpFkpe9Vy9e6iVLvO4sjDCZzCOXhwCTW4hTo0gIGEZ3iFN0c7L86787FozTnZzDH8gfP5AyuQkJw=</latexit>
+|02i
+
+<latexit sha1_base64="lNl8UlEiO3HBNozp7Ur9kSGe7e0=">AAAB8XicbVBNS8NAEJ34WetX1aOXxSJ4KolI9Vj04rGC/cA2lM120i7dbMLuRiix/8KLB0W8+m+8+W/ctjlo64OBx3szzMwLEsG1cd1vZ2V1bX1js7BV3N7Z3dsvHRw2dZwqhg0Wi1i1A6pRcIkNw43AdqKQRoHAVjC6mfqtR1Sax/LejBP0IzqQPOSMGis9PHluV1E5ENgrld2KOwNZJl5OypCj3it9dfsxSyOUhgmqdcdzE+NnVBnOBE6K3VRjQtmIDrBjqaQRaj+bXTwhp1bpkzBWtqQhM/X3REYjrcdRYDsjaoZ60ZuK/3md1IRXfsZlkhqUbL4oTAUxMZm+T/pcITNibAllittbCRtSRZmxIRVtCN7iy8ukeV7xqpXq3UW5dp3HUYBjOIEz8OASanALdWgAAwnP8ApvjnZenHfnY9664uQzR/AHzucPKgaQmw==</latexit>
+|10i
+
+<latexit sha1_base64="CBgJOfB+V7Rr8P4RyVZsSfmKZHE=">AAAB8XicbVBNS8NAEJ34WetX1aOXxSJ4KolI9Vj04rGC/cA2lM120i7dbMLuRiix/8KLB0W8+m+8+W/ctjlo64OBx3szzMwLEsG1cd1vZ2V1bX1js7BV3N7Z3dsvHRw2dZwqhg0Wi1i1A6pRcIkNw43AdqKQRoHAVjC6mfqtR1Sax/LejBP0IzqQPOSMGis9PLleV1E5ENgrld2KOwNZJl5OypCj3it9dfsxSyOUhgmqdcdzE+NnVBnOBE6K3VRjQtmIDrBjqaQRaj+bXTwhp1bpkzBWtqQhM/X3REYjrcdRYDsjaoZ60ZuK/3md1IRXfsZlkhqUbL4oTAUxMZm+T/pcITNibAllittbCRtSRZmxIRVtCN7iy8ukeV7xqpXq3UW5dp3HUYBjOIEz8OASanALdWgAAwnP8ApvjnZenHfnY9664uQzR/AHzucPKgWQmw==</latexit>
+|01i
+
+<latexit sha1_base64="4Zg8ookDhGJNlo52t4+gmZL+TQE=">AAAB8XicbVBNS8NAEJ34WetX1aOXxSJ4KolI9Vj04rGC/cA2lM120i7dbMLuRiix/8KLB0W8+m+8+W/ctjlo64OBx3szzMwLEsG1cd1vZ2V1bX1js7BV3N7Z3dsvHRw2dZwqhg0Wi1i1A6pRcIkNw43AdqKQRoHAVjC6mfqtR1Sax/LejBP0IzqQPOSMGis9PLluV1E5ENgrld2KOwNZJl5OypCj3it9dfsxSyOUhgmqdcdzE+NnVBnOBE6K3VRjQtmIDrBjqaQRaj+bXTwhp1bpkzBWtqQhM/X3REYjrcdRYDsjaoZ60ZuK/3md1IRXfsZlkhqUbL4oTAUxMZm+T/pcITNibAllittbCRtSRZmxIRVtCN7iy8ukeV7xqpXq3UW5dp3HUYBjOIEz8OASanALdWgAAwnP8ApvjnZenHfnY9664uQzR/AHzucPKHqQmg==</latexit>
+|00i
+
+<latexit sha1_base64="o0CDWy+fKG81skph/pq1REwzuvk=">AAAB+nicbVDLSsNAFL3xWesr1aWbwSJ0VRLxtSyI4LKCfUAbymQ6aYdOJmFmooTYT3HjQhG3fok7/8ZJm4W2Hhg4nHMv98zxY86Udpxva2V1bX1js7RV3t7Z3du3KwdtFSWS0BaJeCS7PlaUM0FbmmlOu7GkOPQ57fiT69zvPFCpWCTudRpTL8QjwQJGsDbSwK70Q6zHMsxuBJWjFE3RwK46dWcGtEzcglShQHNgf/WHEUlCKjThWKme68Tay7DUjHA6LfcTRWNMJnhEe4YKHFLlZbPoU3RilCEKImme0Gim/t7IcKhUGvpmMg+qFr1c/M/rJTq48jIm4kRTQeaHgoQjHaG8BzRkkhLNU0MwkcxkRWSMJSbatFU2JbiLX14m7dO6e1E/vzurNmpFHSU4gmOogQuX0IBbaEILCDzCM7zCm/VkvVjv1sd8dMUqdg7hD6zPHw9/k8w=</latexit>
+Energy
+
+<latexit sha1_base64="vnUIsZYgp1H6lSNkfbQnh7aKB9E=">AAAB8HicbVDLSgNBEOz1GeMr6tHLYhA8hV3xdQx68RjBPCRZwuykNxkyM7vMzAphzVd48aCIVz/Hm3/jJNmDJhY0FFXddHeFCWfaeN63s7S8srq2Xtgobm5t7+yW9vYbOk4VxTqNeaxaIdHImcS6YYZjK1FIRMixGQ5vJn7zEZVmsbw3owQDQfqSRYwSY6WHJ6+jiOxz7JbKXsWbwl0kfk7KkKPWLX11ejFNBUpDOdG67XuJCTKiDKMcx8VOqjEhdEj62LZUEoE6yKYHj91jq/TcKFa2pHGn6u+JjAitRyK0nYKYgZ73JuJ/Xjs10VWQMZmkBiWdLYpS7prYnXzv9phCavjIEkIVs7e6dEAUocZmVLQh+PMvL5LGacW/qJzfnZWr13kcBTiEIzgBHy6hCrdQgzpQEPAMr/DmKOfFeXc+Zq1LTj5zAH/gfP4AuGmQXw==</latexit>
+|0i
+
+<latexit sha1_base64="Neiz/92QFeG/TUWBevWL8XZQqE0=">AAACCHicbZDLSsNAFIYn9VbrLerShYNF6EJKIt6WBTfurGAv0JQymZ60QyeTMDMRSujSja/ixoUibn0Ed76NkzYLbf1h4OM/5zDn/H7MmdKO820VlpZXVteK66WNza3tHXt3r6miRFJo0IhHsu0TBZwJaGimObRjCST0ObT80XVWbz2AVCwS93ocQzckA8ECRok2Vs8+9EKihzJMb4NAgcbeCR0SOQA8MSh6g55ddqrOVHgR3BzKKFe9Z395/YgmIQhNOVGq4zqx7qZEakY5TEpeoiAmdEQG0DEoSAiqm04PmeBj4/RxEEnzhMZT9/dESkKlxqFvOrO11XwtM/+rdRIdXHVTJuJEg6Czj4KEYx3hLBXcZxKo5mMDhEpmdsVZDoRqk13JhODOn7wIzdOqe1E9vzsr1yp5HEV0gI5QBbnoEtXQDaqjBqLoET2jV/RmPVkv1rv1MWstWPnMPvoj6/MH1zmZIw==</latexit>
+Oset
+
+charge
+
+ng
+
+<latexit sha1_base64="ZdCbwO50u+12ts1e7IdYOP4dRkk=">AAACBXicbVDLSgMxFM3UV62vUZe6CBahgpQZ8bUsuHHZgn1AZxgyaaYNTTJjkhHK0I0bf8WNC0Xc+g/u/BszbRfaeiDhcM693HtPmDCqtON8W4Wl5ZXVteJ6aWNza3vH3t1rqTiVmDRxzGLZCZEijArS1FQz0kkkQTxkpB0Ob3K//UCkorG406OE+Bz1BY0oRtpIgX3ocaQHkmeNNKQaeqfQHed/5T5wTwK77FSdCeAicWekDGaoB/aX14txyonQmCGluq6TaD9DUlPMyLjkpYokCA9Rn3QNFYgT5WeTK8bw2Cg9GMXSPKHhRP3dkSGu1IiHpjLfWc17ufif1011dO1nVCSpJgJPB0UpgzqGeSSwRyXBmo0MQVhSsyvEAyQR1ia4kgnBnT95kbTOqu5l9aJxXq5VZnEUwQE4AhXggitQA7egDpoAg0fwDF7Bm/VkvVjv1se0tGDNevbBH1ifP6lflqg=</latexit>
+Qubit
+
+1
+
+(q1)
+
+<latexit sha1_base64="ISVPBd+XLZJ+yqpke0rOXxgNUH4=">AAACAHicbVDLSsNAFJ3UV62vqAsXbgaLUEFKIr6WhW5cVrAPaEKZTCft0JlMmJkIJWTjr7hxoYhbP8Odf+OkzUJbD1w4nHMv994TxIwq7TjfVmlldW19o7xZ2dre2d2z9w86SiQSkzYWTMhegBRhNCJtTTUjvVgSxANGusGkmfvdRyIVFdGDnsbE52gU0ZBipI00sI88jvRY8rQpkpgRmUHvHNbw2cCuOnVnBrhM3IJUQYHWwP7yhgInnEQaM6RU33Vi7adIaooZySpeokiM8ASNSN/QCHGi/HT2QAZPjTKEoZCmIg1n6u+JFHGlpjwwnfm5atHLxf+8fqLDWz+lUZxoEuH5ojBhUAuYpwGHVBKs2dQQhCU1t0I8RhJhbTKrmBDcxZeXSeei7l7Xr+4vq41aEUcZHIMTUAMuuAENcAdaoA0wyMAzeAVv1pP1Yr1bH/PWklXMHII/sD5/AKSulbQ=</latexit>
+Coupler
+
+(c)
+
+<latexit sha1_base64="33ynzNKCP2zqTiB5fbb+VQPOnqU=">AAACBXicbVDLSgMxFM3UV62vUZe6CBahgpSZ4mtZcOOyBfuAzjBk0rQNTTJjkhHK0I0bf8WNC0Xc+g/u/Bsz7Sy0eiDhcM693HtPGDOqtON8WYWl5ZXVteJ6aWNza3vH3t1rqyiRmLRwxCLZDZEijArS0lQz0o0lQTxkpBOOrzO/c0+kopG41ZOY+BwNBR1QjLSRAvvQ40iPJE+bSUg19E5hbZr9lbugdhLYZafqzAD/EjcnZZCjEdifXj/CCSdCY4aU6rlOrP0USU0xI9OSlygSIzxGQ9IzVCBOlJ/OrpjCY6P04SCS5gkNZ+rPjhRxpSY8NJXZzmrRy8T/vF6iB1d+SkWcaCLwfNAgYVBHMIsE9qkkWLOJIQhLanaFeIQkwtoEVzIhuIsn/yXtWtW9qJ43z8r1Sh5HERyAI1ABLrgEdXADGqAFMHgAT+AFvFqP1rP1Zr3PSwtW3rMPfsH6+Aascpaq</latexit>
+Qubit
+
+2
+
+(q2)
+
+Figure 1. A schematic representation of the effect of a parity switch on a single transmon and on a two-qubit gate. a The energy diagram of a single offset-charge-sensitive transmon with EJ/EC = 10 with two distinct parity manifolds, marked with + and -. While the ground state |0 also comprises of two distinct parity levels, the difference between them is not visible. b Illustration of two parity switching mechanisms. The vertical axis represents the energy, with the left and right regions corresponding to the two sides of the Josephson junction with the middle region corresponding to the insulator. The light grey area corresponds to the density of states of a BCS superconductor on both sides of the junction. Orange: A high energy photon breaks a Cooper pair (dark blue) thus generating two quasiparticles (light blue), with one quasiparticle tunneling across the junction. Red: A preexisting quasiparticle tunnels across the junction. c The energy level diagram of the states involved in the operation of a diabatic CPHASE gate. The Rabi oscillation between the levels |11  |02 is marked with green arrows, however the larger charge dispersion of the second excited state means that both parity states of the |02 level cannot be considered degenerate anymore. d The lumped element model of the tunable-coupler circuit used in the implementation of diabatic CPHASE gates, consisting of two computational transmons (dark and light blue) referred to in the following as Qubits 1 and 2 (with indices q1 and q2), a flux-tunable coupler (green), denoted with the index c, and capacitive couplings between the transmons (black). The readout resonators and drive lines for the implementation of single-qubit gates are not included in the schematics.
+
+Quasiparticles can be created through several mechanisms, and are known to cause different types of incoherent errors in superconducting qubit realizations16,17. Particularly, quasiparticle tunnelling across the Josephson junction results in energy relaxation and dephasing in superconducting qubits18­23.
+Such detrimental quasiparticle-induced effects have, in turn, motivated research for finding mitigation strategies such as normal-metal traps24­26, band-gap engineering27­29 and improved qubit design30. There have also been efforts towards designing new types of superconducting qubits that are expected to be intrinsically robust against quasiparticle tunneling31.
+Suppression of charge-noise susceptibility of the transmon is achieved by adding a large shunt capacitor in parallel with a Josephson junction of a Cooper-pair box12. However, the energy levels of the transmon exhibit a weak 2e-periodic charge dispersion and are, thus, not completely independent of the offset charge on the transmon island. Since the presence of a quasiparticle shifts the island charge by e, the energy spectrum of the transmon can, thus, be divided into two distinct manifolds based on the parity of the number of quasiparticles on the island as shown in Fig. 1a.
+Switching of the charge-parity can occur either due to a preexisting quasiparticle tunneling across the Josephson junction on to the transmon island, or due to photon-assisted breaking of a Cooper pair, as depicted in Fig. 1b16. The timescale of these stochastic parity-switches is referred to as the parity-switching time and, as we argue in the Results section, it is typically much shorter compared to the time needed to obtain meaningful statistics from the quantum computer.
+Since the difference between the two parity manifolds is strongly suppressed, quasiparticle effects in transmons have mainly been analyzed in the context of quasiparticle-induced decoherence. However, the parity-dependent energy splitting of the higher-excited states is much larger compared to that of the first-excited and ground states, as shown in Fig. 1a. Therefore, parity-switching in the second excited state can potentially become a notable source of error for example in diabatic
+2/27
+
+CZ (controlled-Z) or more generally CPHASE (controlled-phase) gates32. There are different implementations of this gate scheme, most notably, statically coupled transmons33 and parametric drives34, tunable couplers and parametric drives35 and the frequency-tunable coupler architecture35­44. Nonetheless, in all of these gate implementations, the second excited state of one transmon is populated during the gate operation, suggesting the gate could be susceptible to the charge-parity of one transmon in the system.
+Besides the ability to perform fast and high-fidelity gate operations, one of the main reasons for the introduction of the tunable coupler is the fact that the static residual-ZZ interaction between the qubits can be completely suppressed by tuning the coupler transmon to a specific frequency36,38, thus leading to reduced cross-talk and spectator qubit related decoherence45. When determining this frequency, it has been shown that the level repulsion between the higher levels of the tunable coupler system are relevant36,39, thus implying that quasiparticle dynamics might affect our ability to effectively decouple the qubits. On the contrary, these level repulsions can serve as a means to enhance the ZZ interaction strength and facilitate the implementation of CPHASE gates entirely adiabatically, without populating the higher excited states46. Building upon this insight, we anticipate that parity switching may likewise exert a significant influence on the performance of adiabatic gate implementations.
+In this paper, we develop an analytical theory of parity switches in a tunable coupler based architecture which is currently one of the most promising platforms for large-scale quantum computing7,8,10,11. We demonstrate that the effects of a parity switch in a two-qubit gate can be a relevant source of error, even in the transmon regime. Moreover, we show that this previously unidentified error can, in certain parameter regimes, be the dominant quasiparticle-induced error mechanism during a diabatic two-qubit gate, indicated by a comparison to currently achievable parity switching rates observed in superconducting circuits. Furthermore, we demonstrate that the inherent stochastic nature of parity-switching events limits the ability to suppress any unwanted longitudinal interactions between the qubits coupled through tunable couplers47. We find that the magnitude of the unwanted interactions make this effect relevant as coherence times advance into the millisecond regime48,49.
+Secondly, we introduce a systematic and versatile analysis aimed at identifying the optimal qubit design parameters. This comprehensive analysis involves accurately modeling dominant error sources and utilizing a performance metric tailored specifically for the quantum circuit under consideration. Importantly, we utilize analytical expressions for various infidelity terms within the performance metric, which significantly aids the scalability of our approach. By examining the performance metric's reliance on the transmon qubit design parameters, we delineate an optimal parameter range that maximizes overall performance. We demonstrate how our analysis and findings can offer invaluable guidance in the advancement of transmonbased quantum processors. Furthermore, since the established methodology in this paper is general-purpose, we anticipate its broader applicability across various hardware platforms.
+
+Results
+
+Charge-Parity Modelling
+In this section, we first present how a parity switch affects a single transmon qubit. The Hamiltonian of an individual transmon, not taking into account potential higher order contributions to the Josephson energy50, is given by12,51
+
+H^ = 4EC
+
+P-1 n^ - ng + 4
+
+2
+- EJ cos ^,
+
+(1)
+
+where the operator n^ represents the dimensionless charge and ^ is the superconducting phase operator across the Josephson
+junction. The variables EC, EJ and ng represent the charging energy of an electron (i.e. the energy required to add a single electron of the Cooper-pair to the transmon island), Josephson energy and dimensionless offset charge, respectively. The variables n^ and ^ are related via the canonical commutation relation [^, n^] = i. Additionally we have included a discrete parity
+variable P  {-1, +1}, corresponding to the parity of the number of electrons that have tunneled across the junction. The
+parity term has the same effect as a shift of the offset charge by ng = 1/2. Denoting the eigenenergies of the original transmon Hamiltonian in Eq. 1 as Ei with i  {0, 1, 2, 3, ...}, the difference
+between the energy levels of the different parity states can be asymptotically approximated by12
+
+Em+(ng) - Em-(ng)  m cos(2ng),
+
+(2)
+
+where the superscript refers to the parity and the charge dispersion m is given by
+
+m
+
+
+
+(-1)mEC
+
+24m+5 m!
+
+2 
+
+EJ 2EC
+
+m 2
+
++
+
+3 4
+
+ e- 8EJ /EC .
+
+(3)
+
+While the exponential suppression of the charge dispersion with the ratio EJ/EC is well-known and the main reason for the introduction of the transmon, the formula in Eq. 3 also predicts a significant increase in the charge dispersion of higher excited
+
+3/27
+
+states. This means that even though the effect of a parity switch may be small in the computational subspace, the effect can be significantly more pronounced if higher-excited states are involved in the operation of two-qubit gates. For example, we find |2/1|  40 for EJ/EC  50. This difference is even more pronounced since certain effects scale with the square of the charge dispersion, as we show in the following.
+Consequently, the Hamiltonian of the single transmon in Eq. 1 can be approximated in the low-energy manifold and in the asymptotic limit of EJ/EC  1 as
+
+H^
+
+/h¯
+
+
+
+[
+
++
+
+
+
+
+
+(P,
+
+ng)]
+
+a^a^
+
++
+
+
+
++
+
+
+
+ (P, 2
+
+ng
+
+)
+
+a^a^a^a^,
+
+(4)
+
+where
+
+a^
+
+are
+
+bosonic
+
+annihilation
+
+operators,
+
+and
+
+h¯ 
+
+
+
+[E1+(ng)
+
++
+
+E1-(ng)]/2
+
+
+
+ 8EJ EC
+
+- EC
+
+and
+
+h¯ 
+
+
+
+[E2+(ng) +
+
+E2-(ng)]/2
+
+
+
+-EC22 are the parity-averaged expressions for the transmon (angular) frequency and the anharmonicity in the asymptotic
+
+limit, respectively. Here, we have taken into account the fact that the different parities have almost identical parameters, and
+
+the small differences between them are taken into account with the two parameters depending on the parity,  (P, ng) and
+
+ (P, ng). The parity P therefore divides the eigenstates of the Hamiltonian in Eq. 1 into two distinct manifolds, as illustrated
+
+in Fig. 1a. Due to the rapid scaling of the charge dispersion shown in Eq. 3, we neglect in the following the effect of the
+
+parity switching on the first excited state, i.e. we set   = 0, and only focus on the second excited state. Consequently,
+
+ (P, ng) = P2 cos(2ng)/(2h¯ ).
+
+The Diabatic CPHASE Gate
+We consider a non-adiabatic, i.e. diabatic, CPHASE gate based on the two-qubit gate scheme using tunable couplers that was analyzed in Refs.36­40 with similar schemes proposed in Refs.35,41­43. We show the circuit schematics of the tunable-coupler setup in Fig. 1d. Here, the two computational transmons, which we refer to as Qubits 1 and 2 (q1,2), are capacitively coupled with each other and to a third, frequency-tunable, transmon which is referred to as the tunable coupler or simply coupler (c).
+The main operation principle of the diabatic CPHASE gate is shown in Fig. 1c. The CPHASE gate is implemented by tuning the frequency of the coupler closer to the frequency of the computational transmons by using a flux pulse. The conditional phase is collected during a Rabi oscillation between the |11 and |02 states of the computational qubits, as illustrated in Fig. 1c. We model the circuit pictured in Fig. 1d with the Hamiltonian38,39
+
+  H^ /h¯
+
+=
+
+ia^i a^i
+i{q1,c,q2}
+
++
+
+i 2
+
+a^i a^ia^ia^i
+
+-
+
+gi
+i, j{q1,c,q2}
+
+j (a^i
+
+-
+
+a^i)(a^j
+
+-
+
+a^
+
+j ).
+
+(5)
+
+i= j
+
+Since the second excited state of one of the computational transmons is significantly populated during the gate operation, the non-degeneracy of the two parity levels can have a direct effect, and therefore quasiparticle tunneling and photon-assisted pair breaking in the transmon can become a notable source of error in the gate operation. Further details about the numerical modeling and definition of the computational basis in relation to the states of the three constituent transmons are found in the Methods section.
+
+Effective Model The tunable coupler circuit Hamiltonian in Eq. 5 is difficult to analyze and we must often rely on numerical studies39. It is therefore beneficial to introduce an effective Hamiltonian that can approximate the physics of the system. Similar to Refs.38,52,
+we introduce the Schrieffer-Wolff transformation as a means to decouple the computational transmon states from the coupler
+states, and assume that the decoupled coupler remains in the ground state during the gate operations. Unlike the approach taken in Refs.38,52, where the Hilbert space of the local transmons is truncated to the computational subspace, we also include the |02
+state to account for the Rabi oscillation that is used to accumulate the conditional phase. More details of the Schrieffer-Wolff
+transformation can be found in the Methods section, where we show that the diabatic gate can be modelled with the following
+effective unitary
+
+|00 |01 |10 |11
+
+1 0 0
+
+0  |00
+
+U^ (t)=^ 0 1 0
+
+0  |01 .
+
+(6)
+
+0 0
+
+0 0
+
+1 0
+
+P110ei
+
+
+(t)
+
+|10 |11
+
+Here, we have denoted the conditional phase with  (t) and the population of the |11 state with P11. Note that this operator is not necessarily trace-preserving, as part of the population of the |11 state might remain in the |02 state, due to potential
+
+4/27
+
+calibration errors. More explicitly, P11 is given by
+
+P11(t
+
+)
+
+=
+
+1
+
+-
+
+2g~211,02 2
+
+[1
+
+-
+
+cos(t
+
+)]
+
+,
+
+(7)
+
+where we have defined the qubit-qubit detuning and the Rabi frequency of the |11  |02 transition as ~ = ~q1 - ~q2 and  = (~ - ~ q2 )2 + 4g~121,02, respectively. The parameters with the tilde denote the perturbed parameters of the original full Hamiltonian from Eq. 5, which were derived by applying the Schrieffer-Wolff transformation (see Methods, more specifically Eqs. 32-35). The conditional phase in Eq. 6 is given by
+
+ (t)
+
+=
+
+1 2
+
+(~ q2 - ~ )t +  (1 - sign{cos(t/2)})
+
++ arctan
+
+~ - ~ q2 tan(t/2) 
+
+.
+
+(8)
+
+Eqs. 7 and 8 can be used to assess the susceptibility of the gate parameters to a small perturbation, such as a parity switch. Due to the larger charge dispersion of the second excited state, and the fact that the second excited state of Qubit 2 (q2) is populated during the gate operation, we can assume that the main contribution of the parity switch is the perturbation of the
+anharmonicity q2 . By treating the parity-dependent contribution to the anharmonicity   from Eq. 4 as a small perturbation, we can obtain
+the parity-dependent expressions for the conditional phase and |11 population
+
+
+
+(tg,
+
+Pq2
+
+)
+
+
+
+0
+
++
+
+  q2
+
+ q2 (Pq2 , ng),
+t =tg
+
+(9)
+
+P11(tg, Pq2 )
+
+
+
+1
+
++
+
+1 2
+
+ 2P11  q22
+
+[ q2 (Pq2 , ng)]2 ,
+t =tg
+
+(10)
+
+where the Taylor expansion of the optimal gate parameters for a small perturbation of q2 evaluated at the mean (parity averaged) anharmonicity q2 from Eq. 4 was employed. At this point, we stress again that  (P, ng) = P2 cos(2ng)/2. While the above expressions are completely general also in the non-perturbative regime, the relations given in Eqs. 7 and 8 can be used to obtain analytical expressions for   / q2 and  2P11/ q22 , which determine the susceptibility of the gate to charge-parity switches.
+We realize from Eq. 7 that the implementation of a high-fidelity gate with an arbitrary conditional phase 0 requires P11(tg) = 1, otherwise some population remains outside of the computational subspace. Therefore, the following condition for the gate time tg must hold: tg = n · 2, in which n  N is an integer number. This condition enables us to further simplify the
+relations for the susceptibility of the conditional phase to a parity switch, and we obtain up to the leading order,
+
+
+
+ tg ,
+
+(11)
+
+ q2 t=tg 2
+
+and
+
+ 2P11  q22
+
+t =tg
+
+O
+
+g~121,02 (q2 + q2 - q1 )4
+
+.
+
+(12)
+
+In the derivation of Eq. 11 we have neglected the terms proportional to gq1cgq2c/(q2 - c + q2 )3 and gq22c/(q2 - c + q2 )3 and higher orders. Additionally Eq. 12 only contains the lowest order scaling of the result. A list of all the assumptions used in
+the derivation of Eqs. 11 and 12 is included in the Methods section.
+
+Gate Fidelity Limitations
+So far we have quantified how a parity switching event can affect the parameters of the gate unitary. In order to describe the
+gate performance in a quantum circuit, we also need to consider how frequently parity switching events occur.
+Experiments of parity switching lifetimes typically show the parity switching time to lie in the broad range of TP  100 µs - 1 s51,53­57. Even though the parity switching lifetime of transmons might increase in the future, e.g., due to better design and improved shielding, it appears that the parity lifetime may be fundamentally upper bounded by the high-energy quasiparticle burst events, which are observed to happen once every 10 - 50 s58­61.
+
+5/27
+
+Kraus Operator Description
+
+Comparing the realistic range of parity lifetimes of superconducting qubits to the duration of a single two-qubit gate tg, which is typically in the range of tens to hundreds of nanoseconds36, 37, 41, 43, 62, we observe that tg  TP. However, any meaningful
+
+application of a quantum computer will include re-running an algorithm, comprised of a large number of non-parallel gates
+
+Nthgeatuesn, cinerotaridnetrytoofreadnuycoebtsheervsatabtliestgiceanleurnalcleyrtsacianlteysoafst1h/eobNssehrovtsa6b3 laenbdeitnhgereevfaolrueaNtesdho. tsDmenuosttinbge
+
+the number of runs by Nshots, large. All together, the time
+
+needed to execute a full algorithm Talg roughly scales as Talg  Nshots · Ngates · tg, but it may be realistically even longer, due to
+
+the time needed to measure and reinitialize the quantum computer, and any possible pulse schedule compilation of the control
+
+electronics64.
+
+As an example, in Refs.7,9,65 state of the art devices were run for a total of several minutes in order to obtain meaningful
+
+results, which implies the following clear separation of timescales
+
+tg  TP  Talg.
+
+(13)
+
+The left side of Eq. 13 indicates that the probability for a parity switch occurring during the operation of a single gate is very low, while the right-hand side suggests that a large number of parity switches can occur during an execution of an algorithm. This means that the effect of the charge-parity switch (CPS) on a diabatic CPHASE gate can be described by the following Kraus operators66 acting on the two-qubit density matrix ^
+
+CPHASECPS[^ ] = U^-^U^- +U^+^U^+ ,
+
+(14)
+
+where U^± are Kraus operators corresponding to the different parity implementations of the two-qubit gate. Eq. 14 can be interpreted as a stochastic application of two different gate operators; by assuming that the target conditional phase is 0, they can be written as
+
+1 0 0
+
+0
+
+
+
+U^ ± (t )
+
+=
+
+1 2
+
+0 0 
+
+1 0
+
+0 1
+
+0
+
+
+
+0
+
+, 
+
+
+
+(15)
+
+000
+
+1
+
+-
+
+ P11 4
+
+ei0±i
+
+ 2
+
+with   =   / q2 2q2 cos(2nqg2 )/h¯ and  P11 =  2P11/ q22 2q2 cos(2nqg2 )/h¯ 2 /2, which is a result of Eqs. 9 and 10, together with  (P, ng) = P2 cos(2ng)/(2h¯ ). We have additionally assumed that both parities are equally likely, however this assumption can also be easily relaxed. Note that the channel defined in Eq. 14 is not trace preserving when  P11 > 0. More specifically tr{CPHASECPS[^ ]}  tr{^ }, where the equality holds when  P11 = 0. In this case the map is both completely positive and trace preserving and the completeness relation of the Kraus operators i=+,- U^iU^i = I holds.
+We have defined the Kraus operators in Eq. 15 so that there are small errors associated with each parity state. We show in
+the following that this corresponds to higher average gate fidelities, compared to having one parity state with a perfect fidelity
+and the second parity state with a larger error. This assumption is, therefore, equivalent to optimally calibrating the gate with
+respect to the parity switching error.
+
+Gate Fidelity
+Using the Kraus operator description in Eq. 15 allows us to make a formal analysis of performance metric of an arbitrary conditional phase gate in the presence of parity switches and resulting phase and leakage errors.
+The average gate fidelity F in the presence of leakage can be computed by67,68
+
+1 d
+
+i=+,-
+
+tr
+
+U^CPHASEU^i
+
+2
++1-L
+
+F [CPHASECPS] =
+
+, d+1
+
+(16)
+
+with the leakage parameter L = 1 - tr U^CPHASE i=+,- U^iU^i U^CPHASE /d. Here U^CPHASE is the unitary operator of an ideal CPHASE gate and d is the dimension of the computational Hilbert space, which in our case is d = 4.
+The fidelity F of the operation given in Eq. 14 for small perturbations   and  P11 is given by the following expression
+
+F 1- 3 80
+
+  q2
+
+2q2 cos(2ngq2 )/h¯
+t =tg
+
+2
+
++
+
+1 32
+
+ 2P11  q22
+
+t =tg
+
+2q2 cos(2ngq2 )/h¯ 2 .
+
+(17)
+
+6/27
+
+Here, we observe that the effect on the fidelity is of second order in the charge dispersion, due to the coherent nature of a conditional phase error. However, we have shown in Eq. 38 of the Methods section that the infidelity of a series of N gates is given by 1 - FN  N(1 - F ). This indicates that the error scales linearly with the number of gates, as is typical of incoherent errors, but quadratically in the error parameter   , as is expected from a coherent error69,70.
+In deriving Eq. 38, one can observe that the numerical prefactors in front of both terms (here 3/80 and 1/32) increase,
+and therefore the average gate fidelity decreases, if the gate is not calibrated in such a way that the error is equally distributed
+between both parity states. For this reason, we have chosen the Kraus operators as given in Eq. 15.
+We conclude from Eq. 17, together with Eqs. 11 and 12, that the dominant effect of the parity switch event is the shift in the conditional phase, rather than leakage, since (  / q2 )2   2P11/ q22 in the perturbative regime considered in this manuscript. Moreover the magnitude of the shift in conditional phase is given by Eq. 9 and Eq. 11. Further simplifying Eq. 38
+therefore results in
+
+3 F 1-
+320
+
+2q2tg cos(2ngq2 )/h¯ 2 .
+
+(18)
+
+Numerical simulations
+
+Here, we compare the above results with the numerically exact treatment of full the Hamiltonian in Eq. 5. The parity switch
+
+effect is taken into account in the numerical experiments by considering the transmon Hamiltonian from Eq. 4. In other words, the system is simulated for all 23 = 8 possible parity states and the results are averaged accordingly.
+
+According to Eq. 2, the magnitude of the effect also depends on the offset voltage of Qubit 2, which is typically not
+
+known. Thus, we assume for simplicity that ngq2 = 0. Alternatively, as long as all the effects remain second order in the charge
+
+dispersion, one can also define an average charge dispersion as ¯2q2 = 2q2
+
+1 0
+
+dng
+
+cos2
+
+(2
+
+ng
+
+)
+
+=
+
+2q2
+
+ / 2.
+
+Parity-Switch Induced Diabatic Gate Errors
+
+To achieve high-fidelity gate simulations, it is crucial to carefully select the Hamiltonian parameters in Eq. 5. We have described
+
+how these parameters were chosen so that high-fidelity gates are possible with arbitrary ratios of EJ/EC of Qubit 2 in Table 1
+of the Methods section. We also note that in general, we use parameters that closely resemble those in the implementation presented in Ref.36. We examine the effect of a parity-switch on the fidelity of a CZ gate and compare the perturbative
+
+analytical results to a full simulation of the Hamiltonian in Eq. 5. The pulse shape used in the simulations (defined in Eq. 27) is
+
+parameterized by its amplitude A, ramping up time b and plateau duration c. The full duration of the flux pulse is therefore
+
+given by T = c + 2b.
+
+The
+
+conditional
+
+phase
+
+of
+
+the
+
+gate
+
+in
+
+the
+
+simulations
+
+is
+
+obtained
+
+from
+
+propagating
+
+the
+
+state
+
+| (t
+
+=
+
+0)
+
+=
+
+1 2
+
+(1,
+
+1,
+
+1,
+
+1)T
+
+and
+
+extracting the conditional phase of the |11 state. Fig. 2a compares the analytical results in Eqs. 9 and 11 to the numerically
+
+obtained values and confirms that the two approaches agree up to a good accuracy. Since the magnitude of the charge dispersion
+
+in the numerical analysis is the same as in the analytical treatment, the error stems completely from the approximations made in
+
+evaluating   / q2 . Furthermore, Fig. 2a also clearly shows that the parity-switching-induced shift in the conditional phase scales exponentially with the ratio of EJ/EC. This is due to the scaling of the charge dispersion in Eq. 3.
+
+In Fig. 2b, we show numerical data of the full gate fidelity after the parity switch and, as a comparison, the corresponding
+
+analytical result calculated using Eq. 18. The average gate fidelity in the numerical example is obtained from propagating a
+
+number of input states, reconstructing the effective superoperator of the gate from these simulations and subsequently using
+
+Eq. 16 to obtain the average gate fidelity of the gate. We observe that the infidelity of the numerical simulation flattens for
+
+EJ/EC  75, which is due to other errors in the gate implementation, such as leakage transitions during the pulse ramping up and down, which was confirmed by monitoring the population of the computational states during gate operation (see
+
+Supplementary Information for more details). In this region (in grey) the effect of a parity switch is not seen since it is too small
+
+compared to other errors. On the other hand at lower values of EJ/EC, the numerical results overlap with the parity switching error predicted by the shift in the conditional phase. While clearly demonstrating the magnitude of the error, this result also
+
+shows that the leakage error contribution in Eq. 17 is negligible in the perturbative regime. The gate durations in Fig. 2 are
+
+typically 45 ns  tg  60 ns, with c  tg.
+
+Additionally, Fig. 2b compares the magnitude of the error due to quasiparticle related decoherence to the parity switch
+
+induced error described in this work. Since the quasiparticle induced characteristic decay times T1 and T depend on a large number of parameters and there are two possible quasiparticle generating mechanisms (see Fig. 1b)16, we only provide an
+
+upper bound based on the parity switching time observed in the references cited in the caption of Fig. 2. This upper bound is determined by noting that in the computational subspace55
+
+0+0- + 1+1- + 0+1- + +10-  2/TP,
+
+(19)
+
+7/27
+
+a
+
+b
+
+Figure 2. Effects of a parity switch on the fidelity of a CZ gate. a Analytical predictions (red circles) of the conditional-phase difference of the CZ gate between the two parities. The theory predictions from Eqs. 11 and 9 are compared to the phase extracted from a full numerical simulation of the gate (blue crosses), with the Hamiltonian parameters from Table 1. The inset displays the relative absolute error between the analytical predictions and the numerical results. The x-axis represents the EJ/EC ratio (bottom) and second excited state charge dispersion (top) of the qubit with the higher frequency (Qubit 2). The inset displays the relative error of the analytical prediction. b Gate infidelity after a parity switch on Qubit 2, where the theory predictions (red circles) only take into account the effect on the conditional phase, according to Eq. 18. The green lines are estimates of the upper bound for the infidelity contribution of quasiparticle induced decoherence on the two-qubit gate system, with the parity lifetimes TP measured by different references: [1] Risté, D., et al. (2013)54, [2] Diamond, S., et al. (2022)53 and [3] Kurter, C., et al. (2022)56. More specifically, references [1] and [2] have reported the values TP = 1.25 ms and TP = 2.5 ms respectively. In reference [3], parity-switching times between 1 ms and 1.5 s were demonstrated. For this reference, we have used the value of TP = 20 ms, which approximately corresponds to the median parity-switching time of all the samples. The grey region is the region in which errors due to unwanted transitions during the gate operation are more prominent and the effect of a parity switch is negligible. It therefore represents the lower bound of the infidelity, which is largely independent of the ratio EJ/EC.
+where the rates +i j- represent the transition rates between states |i±  | j in different parity manifolds of a single transmon. Since amplitude damping noise has a larger effect on the fidelity compared to pure dephasing (see Table 2), we furthermore assume the worst-case scenario in which each quasiparticle-induced parity switching event results in a T1 decay, so that 1/T1qp = 0+1- + +10-  2/TP. This expression for T1qp, together with experimentally measured values of TP, provides an approximate upper bound for the magnitude of the effect of the decoherence. Even though each green line in Fig. 2b uses a constant measured TP, independent of EJ/EC, the plotted infidelity contribution is not constant due to the varying gate duration T = 2b + c.
+We observe from Fig. 2b that depending on the ratio of EJ/EC and the parity lifetimes TP, the contribution of parity switching to the infidelity of the two-qubit gate system can dominate the contribution from quasiparticle-induced decoherence. Note that the two-qubit gates are also typically the noisiest building blocks of a quantum algorithm7,8,11,69. We have also provided additional numerical results in the Supplementary Information, showing that the effect of a parity switch on the leakage becomes the main contribution to the infidelity at shorter gate times.
+In order to compare the effect of the charge-parity switches to 1/ f -charge noise, which was previously thought to dominate the low EJ/EC regime, we included a comparison of the infidelity of a two-qubit gate due to 1/ f -type charge noise in the Supplementary Information, since the contribution of both of these error sources scales with the charge dispersion of the transmon. However, unlike the charge dispersion of the transmon which is maximized when cos(2ng) = 1, the low-frequency charge noise decoherence rate is maximal at sin(2ng) = 1 . This means that these two errors are mutually exclusive, i.e. if we were hypothetically able to tune ng to the value where the charge dispersion of the transmon is equal to zero, that point corresponds to the maximal decay rate due to low-frequency charge noise12. Nonetheless, in the comparison we have assumed in both the charge-parity switching analysis and the low-frequency charge noise analysis that we are at the noise hotspot, i.e. the value of ng where the effects are maximal, thus slightly overestimating both errors. We observe that at lower EJ/EC the charge-parity switching error is dominant and vice versa. The crossover between the infidelity due to the charge-noise-induced dephasing in the computational subspace and the parity switching exhibits a crossover at EJ/EC  80, which corresponds to
+8/27
+
+a gate infidelity of 1 - F  10-8, i.e. the charge-parity switching error is dominant for EJ/EC  80. However, due to the increased charge dispersion in the higher-excited levels of the transmon and the utilization of the second excited state, we have additionally analyzed the effect of the second excited state charge-noise-induced dephasing which was found to be much larger compared to the effects in the computational subspace. In this case, the crossover between the charge-parity error, which was again dominant at lower EJ/EC, was found to occur at EJ/EC  65 and infidelities on the order of 1 - F  10-6. We note here that our analysis overestimates the effect of the charge noise in a realistic scenario by neglecting the time correlations in the noise and should be treated as an upper bound of the magnitude of the effect. These results demonstrate that the parity-switching error is the dominant charge dispersion related error of the two-qubit gate in the regime of EJ/EC  65.
+
+Parity-Switching Effects on the Adiabatic Interaction The tunable coupler architecture analyzed thus far can also be used to implement an adiabatic CPHASE gate. In this case, the level repulsion between the states of the double-excitation manifold is used to obtain a phase shift of the |11 state, which accumulates the conditional phase with the rate
+
+ZZ = 11 - 01 - 10 + 00,
+
+(20)
+
+where h¯ i j are the eigenenergies of the eigenstates which form the computational basis, as described in the Methods section. In this gate implementation the population ideally never leaves the computational subspace, however we will show that, also in the adiabatic implementation, the gate will suffer from charge-parity switching errors of a similar magnitude as in the diabatic case.
+Additionally, one of the main benefits of the tunable coupler architecture is the ability to also suppress any residual interactions between the qubits during idling38,39,47, with unwanted ZZ coupling strengths demonstrated to be below 1 kHz36. In this section, we also show that uncontrolled parity-switching sets a lower bound on the minimum achievable unwanted ZZ interaction in such systems.
+In the presence of parity-switches in all three transmons of the tunable coupler system, the ZZ coupling rate of each of the distinct parity configurations will slightly differ. Since these differences are proportional to the charge dispersion, and therefore small, we can describe the parity-dependent ZZ coupling of this system with a first-order Taylor expansion, so that
+
+ ~ZZ(Pq1
+
+,
+
+Pc,
+
+Pq2
+
+)
+
+
+
+Z0Z
+
++
+
+i{q1,c,q2}
+
+Pi 2
+
+ ZZ  i
+
+2i
+
++
+
+ ZZ  i
+
+1i
+
+,
+
+(21)
+
+with Pi  {-1, +1} i. While we have still assumed 2  1, we have also acknowledged that the first-excited-state charge dispersion and the derivatives  ZZ/ i can, in certain cases, be significantly larger compared to  ZZ/ i. ZZ therefore corresponds to the ZZ coupling strength of the system with parity-averaged parameters.
+However, in order to evaluate the derivatives in Eq. 21, or the general value of the coupling rate ZZ with fixed Hamiltonian parameters (without including parity effects), it is necessary to go to fourth-order perturbation theory in the coupling strengths, as was done in Refs.36,39. While the complete fourth-order expression is impractical for obtaining any analytical insight, by
+further assuming the hierarchy of the system parameters ic  ic  gic  g12, where i j = i +  j and i j = i -  j, for i, j  {q1, c, q2}, the cumbersome expressions can be significantly simplified into39
+
+2 (q1 + q2 )g~021,10 - 2g~01,10(2q1 q2 + (q1 - q2 )q1q2 )
+
+ZZ 
+
+(q1q2 + q1 )(q1q2 - q2 )
+
++ 22
+
+4c
+
++
+
+(q1 + q2 )q21q2 (q1q2 + q1 )(q1q2 -
+
+q2
+
+)
+
+, (22)
+
+where  = gq1cgq2c/(2q1cq2c)  10-3. Focusing on the idling regime, where Z0Z = 0, the difference between the derivatives obtained from Eq. 22 and the
+numerically exact result is shown in Fig. 3a. We observe qualitatively good agreement in the vicinity of the two coupler idling frequencies of the system (vertical black dotted lines).
+Since the system has eight uncontrolled, rapidly (compared to experimental timescales, as in Eq. 13) switching parity states, we define a parity-averaged idling interaction strength:
+
+ ~Z2ZCPS
+
+=
+
+1 23
+
+Pq1 ,Pc,Pq2 {-1,+1}
+
+~ZZ(Pq1 , Pc, Pq2 )
+
+2
+.
+
+(23)
+
+This definition is the parity-averaged mean-square of the idling ZZ strength defined in Eq. 21. Parity-averaged coupling
+strengths are shown in Fig. 3b, where we observe a good agreement between the analytical result and the numerical data. The possible values of the quantity ZZ(Pq1 , Pc, Pq2 ) for the third data point [also shown in panel a] are visualized in the bar graph. The bar graph demonstrates that Qubit 2 (q2) is the dominant contributor to the perturbation, with small corrections due to
+
+9/27
+
+a
+
+b
+
+c
+Figure 3. Comparison of the analytical formulas with numerical results obtained via exact diagonalization in the idling regime. a Largest derivatives in Eq. 21 obtained numerically (solid lines) and from Eq. 22 (filled circles) using the parameters from Table 1 and q2 = -270 · h MHz. The x-axis represents the coupler frequency, with the two idling frequencies denoted with black dashed vertical lines. Additional plots of the first-order derivatives at different qubit detunings are available in the Supplementary Information. b Comparison of numerical and analytical results for the root-mean-squared coupling strength at the idling point (defined in Eq. 23), with the bar graph displaying the numerical values of the coupling for the 8 different parity states for the highlighted data point. The parameters of the simulation are chosen identically as in Fig. 2 and are listed in the Methods section, more specifically in Table 1. The parameters for the bar plot correspond to the parameters in panel a. c The susceptibility of an adiabatic CZ (0 = ) gate to a parity switch (defined in Eq. 24) at different coupler frequencies and qubit detunings, measured in GHz (left axis) and in units of q2 (right axis), using the same parameters as in panel a. The black contours represent different values of Z0Z, as indicated on the plot. The white dashed line indicates the detuning used in panel a.
+the parity of Qubit 1 (q1). This can be seen by noting that the residual coupling strength is dependent mostly on the parity of Qubit 2 (q2). We have extended this analysis to larger values of q1q2 in the Supplementary Information, to show that the parity-switching induced ZZ coupling strength is not always dependent on the parity of a single transmon in the system. The parity of the coupler in this set of parameters is largely irrelevant due to the high ratio of EJc /ECc  250, but this is not always the case. For example, considering the gate implementation from Ref.41, the ratio of EJc /ECc for the coupler is much smaller and therefore, the coupler parity in this implementation has a much larger effect on the strength of the residual ZZ coupling.
+The above results therefore present a fundamental limit on the magnitude of unwanted interactions that can be achieved in the tunable coupler architecture. However, the overall effect on an algorithm is more complex as it depends on the duration of the execution (since the interaction is always "on"), which in turn depends on the coherence times. We estimate that this error becomes relevant if the coherence times are of the order of 1/ ~Z2ZCPS, since a significant unwanted conditional phase is accumulated if the algorithm duration T (which is determined by the coherence times) is long enough such that T · ~Z2ZCPS  1. For EJ/EC  50, the coherence time (or algorithm duration) needed to observe the parity-switchinginduced residual coupling strength is on the order of 1 ms. Note that current fabrication processes are indeed already approaching this value48, 49.
+Moving on the adiabatic CPHASE gate, we have observed in Fig. 3a,b that the state contributing most to the unwanted ZZ interaction in the idling regime is the second excited state of the high-frequency qubit, provided that q1 - q2  q2 . This is
+10/27
+
+due to the hybridization of the computational |11 state with the local transmon state |0q1 0c2q2 , which was also confirmed by the additional results included in the Supplementary Information. More importantly, this means that according to the same
+reasoning as in the diabatic gate case, the adiabatic gate can be described by the same pair of Kraus operators as defined in Eq. 15, and since we are assuming adiabaticity, we can automatically set  P11 = 0. Again, applying the same reasoning as in the diabatic case, the fidelity of the adiabatic gate is given by
+
+
+
+2
+
+F 1- 3 80
+
+  q2
+
+2q2 cos(2ngq2 )/h¯
+t =tg
+
+2
+
+=
+
+1
+
+-
+
+3 80
+
+    
+
+ 
+
+ZZ q2
+
+0 |Z0Z|
+
+2q2
+
+cos(2
+
+ngq2
+
+
+)/h¯  
+
+
+.
+
+(24)
+
+Fig. 3c
+
+In the second step we have again assumed a flat pulse with duration tg and neglected the ramping up and down phases of the flux pulse. With this simplification, the conditional phase is given by 0 = Z0Ztg. Contrasting the expressions in Eq. 24 and Eq. 18, we can see that if the quantity  ZZ/ q2 · 0/|Z0Z| is on the order of  10 ns, the error of the adiabatic gate is similar to the diabatic case (displayed in Fig. 2). More specifically, the conditional phase shift due to a charge-parity switch is given by (igndorintgg/t2h·ef2qa2c/tho¯ rincotsh(e2dinaqgb2a)t)i.c case (according to Eq. 11) and by  a   ZZ/ q2 · 0/|Z0Z|2q2 /h¯ in the adiabatic case
+The quantity  ZZ/ q2 · 0/|Z0Z| is numerically analyzed in Fig. 3c, where we can see that in the vicinity of the horizontal line where q1 - q2 = q2 , the hybridization with the second excited state results in an increased sensitivity to the charge-parity switches. However, the exact value of  ZZ/ q2 · 0/|Z0Z| is very dependent on the value of the qubit-qubit detuning, but generally the regime where q1 - q2 < q2 is more favorable. In the regime where q1 - q2  q2 , the observed effect of a
+charge-parity switch on the fidelity (which is proportional to the square of the plotted values according to Eq. 24) can be an
+
+order of magnitude larger than in two orders of magnitude smaller.
+
+the diabatic case. More specifically,
+
+Conversely, at EJ/EC =
+
+in 50
+
+the regime where (corresponding to
+
+2qq12
+
+- 
+
+q2 < q2 , the infidelity 250 h kHz), the maximal
+
+is up to fidelity
+
+achievable in the range of the plot in Fig. 3c is F  1 - 10-7, and the minimal fidelity is F  1 - 10-2.
+
+Optimal Qubit Parameters Having established the magnitude of the parity-induced error on a two-qubit gate, we have shown that this error can be mitigated by increasing the EJ/EC ratio of the transmon. However, there are other error sources present in such architectures40, and while increasing the EJ/EC ratio will suppress the parity-switching errors, it may also increase the contribution of other possible error sources. Therefore, in order to find better parameters for future transmon-based quantum computers, we must evaluate the contributions of all errors affecting the system. In particular, we estimate optimal regions for the qubit parameters EJ and EC, where the errors contributing to the gate and state preparation infidelities are minimized.
+We consider a number of different error sources relevant to superconducting qubits:
+1. T1 decay due to the coupling to a bath of two-level systems71­77.
+2. T pure dephasing due to the coupling to magnetic flux noise71, 78­80.
+3. Leakage affecting single-qubit gates due to low anharmonicity81.
+4. State preparation errors due to finite-temperature heating effects13­15, without the presence of active reset.
+5. Errors in the two-qubit gate operation due to parity switch effects that are analyzed in this manuscript.
+In Methods, we show how the above error sources scale with the transmon Hamiltonian parameters EJ and EC. We have not included any errors related to the control and calibration of the individual gates, as such errors do not explicitly depend on the qubit parameters and their inclusion, therefore, would not significantly alter the presented results. Similarly, measurement errors are present, but have no explicit dependence on EJ and EC.
+For simplicity, we consider the same tunable coupler system as in the previous section, but arranged in a square grid, as pictured in Fig. 4a. In order to avoid frequency crowding issues with such a connectivity82, the qubits in the array are divided into low and high-frequency transmons. Furthermore, to prevent next-nearest-neighbor frequency collisions, even qubits assigned to the high- or low-frequency groups must possess non-identical frequencies, as demonstrated in Ref83. Nonetheless, the frequency spread within each group is considerably smaller compared to the disparity between the means of these two groups. While our analysis focuses on a single qubit pair, extending the results to encompass a parameter distribution is straightforward. Additionally, we will define a broader region of optimal parameters spanning several hundred MHz in frequency, ensuring that all transmons within the square grid can fit within this designated range.
+
+11/27
+
+a
+
+b
+
+d
+
+<latexit sha1_base64="r2C9k/DpPCcSRWaUmudZSTgsMRQ=">AAAB+HicbVDLSsNAFL2pr1ofjbp0EyyCq5KIr2XRjcsW7APaUCbTaTt0ZhLmIdTQL3HjQhG3foo7/8ZJm4W2Hhg4nHMv98yJEkaV9v1vp7C2vrG5Vdwu7ezu7Zfdg8OWio3EpIljFstOhBRhVJCmppqRTiIJ4hEj7Whyl/ntRyIVjcWDniYk5Ggk6JBipK3Ud8s9jvRY8rRhIqrVrO9W/Ko/h7dKgpxUIEe97371BjE2nAiNGVKqG/iJDlMkNcWMzEo9o0iC8ASNSNdSgThRYToPPvNOrTLwhrG0T2hvrv7eSBFXasojO5nFVMteJv7ndY0e3oQpFYnRRODFoaFhno69rAVvQCXBmk0tQVhSm9XDYyQR1rarki0hWP7yKmmdV4Or6mXjolK7zesowjGcwBkEcA01uIc6NAGDgWd4hTfnyXlx3p2PxWjByXeO4A+czx91QZOg</latexit>
+Qubits
+<latexit sha1_base64="Pusnjpf74ldduOAOTOBoRX37NFQ=">AAAB+nicbVDLSsNAFL3xWesr1aWbYBFclUR8LYvduKxgH9CGMplO26HzCDMTpcR+ihsXirj1S9z5N07aLLT1wMDh3HO5Z04UM6qN7387K6tr6xubha3i9s7u3r5bOmhqmShMGlgyqdoR0oRRQRqGGkbasSKIR4y0onEtm7ceiNJUinsziUnI0VDQAcXIWKnnlrocmZHiaU0mMbPGac8t+xV/Bm+ZBDkpQ456z/3q9iVOOBEGM6R1J/BjE6ZIGYoZmRa7iSYxwmM0JB1LBeJEh+ks+tQ7sUrfG0hlnzDeTP29kSKu9YRH1pkF1YuzTPxv1knM4DpMqYgTQwSeHxokzDPSy3rw+lQRbNjEEoQVtVk9PEIKYWNLKNoSgsUvL5PmWSW4rFzcnZerN3kdBTiCYziFAK6gCrdQhwZgeIRneIU358l5cd6dj7l1xcl3DuEPnM8fDyuUiQ==</latexit>
+Couplers
+
+<latexit sha1_base64="W9fTK/Z+taMS0/fvS80i+1gENF4=">AAACE3icbVDLSsNAFJ34rPUVdelmsAgipSSi1Y1QdOOyQl/QhDCZTtqhM0mYmQgl5B/c+CtuXCji1o07/8ZJm4W2Hhg4c8693HuPHzMqlWV9G0vLK6tr66WN8ubW9s6uubffkVEiMGnjiEWi5yNJGA1JW1HFSC8WBHGfka4/vs397gMRkkZhS01i4nI0DGlAMVJa8szTlpfaVSuD11AzJx7R2efCgk4VOjxxOFIjwVOZeWbFqllTwEViF6QCCjQ988sZRDjhJFSYISn7thUrN0VCUcxIVnYSSWKEx2hI+pqGiBPpptObMnislQEMIqFfqOBU/d2RIi7lhPu6Mt9Qznu5+J/XT1Rw5aY0jBNFQjwbFCQMqgjmAcEBFQQrNtEEYUH1rhCPkEBY6RjLOgR7/uRF0jmr2fVa/f680rgp4iiBQ3AEToANLkED3IEmaAMMHsEzeAVvxpPxYrwbH7PSJaPoOQB/YHz+ADEim+s=</latexit>
+T1,0
+
+=T
+
+,0 = 50 µs
+
+c
+
+<latexit sha1_base64="ZnvBdMLjCd5RNTt3EXPYhYCGtZY=">AAAB9HicbVDLSsNAFL2pr1pfVZduBovgqiTF17LoxmUF+4AmlMl00g6dTOLMpFBCvsONC0Xc+jHu/BunaRbaeuDC4Zx7ufceP+ZMadv+tkpr6xubW+Xtys7u3v5B9fCoo6JEEtomEY9kz8eKciZoWzPNaS+WFIc+p11/cjf3u1MqFYvEo57F1AvxSLCAEayN5LmBxCR1Y5aljWxQrdl1OwdaJU5BalCgNah+ucOIJCEVmnCsVN+xY+2lWGpGOM0qbqJojMkEj2jfUIFDqrw0PzpDZ0YZoiCSpoRGufp7IsWhUrPQN50h1mO17M3F/7x+ooMbL2UiTjQVZLEoSDjSEZongIZMUqL5zBBMJDO3IjLGJgdtcqqYEJzll1dJp1F3ruqXDxe15m0RRxlO4BTOwYFraMI9tKANBJ7gGV7hzZpaL9a79bFoLVnFzDH8gfX5Axq+klU=</latexit>
+
+
+
+2
+
+<latexit sha1_base64="ZnvBdMLjCd5RNTt3EXPYhYCGtZY=">AAAB9HicbVDLSsNAFL2pr1pfVZduBovgqiTF17LoxmUF+4AmlMl00g6dTOLMpFBCvsONC0Xc+jHu/BunaRbaeuDC4Zx7ufceP+ZMadv+tkpr6xubW+Xtys7u3v5B9fCoo6JEEtomEY9kz8eKciZoWzPNaS+WFIc+p11/cjf3u1MqFYvEo57F1AvxSLCAEayN5LmBxCR1Y5aljWxQrdl1OwdaJU5BalCgNah+ucOIJCEVmnCsVN+xY+2lWGpGOM0qbqJojMkEj2jfUIFDqrw0PzpDZ0YZoiCSpoRGufp7IsWhUrPQN50h1mO17M3F/7x+ooMbL2UiTjQVZLEoSDjSEZongIZMUqL5zBBMJDO3IjLGJgdtcqqYEJzll1dJp1F3ruqXDxe15m0RRxlO4BTOwYFraMI9tKANBJ7gGV7hzZpaL9a79bFoLVnFzDH8gfX5Axq+klU=</latexit>
+
+
+
+2
+
+<latexitsha1_base64="DELtbWNarnRNLOxIHNyKKQwD8ms=">AAAB6nicbVDLSgNBEOyNrxhfUY9eBoPgKeyKr2PQi8eI5gHJEmYns8mQ2dllplcISz7BiwdFvPpF3vwbJ8keNLGgoajqprsrSKQw6LrfTmFldW19o7hZ2tre2d0r7x80TZxqxhsslrFuB9RwKRRvoEDJ24nmNAokbwWj26nfeuLaiFg94jjhfkQHSoSCUbTSQzcRvXLFrbozkGXi5aQCOeq98le3H7M04gqZpMZ0PDdBP6MaBZN8UuqmhieUjeiAdyxVNOLGz2anTsiJVfokjLUthWSm/p7IaGTMOApsZ0RxaBa9qfif10kxvPYzoZIUuWLzRWEqCcZk+jfpC80ZyrEllGlhbyVsSDVlaNMp2RC8xZeXSfOs6l1WL+7PK7WbPI4iHMExnIIHV1CDO6hDAxgM4Ble4c2Rzovz7nzMWwtOPnMIf+B8/gBS/Y3X</latexit>
+
+<latexit sha1_base64="Myr3Kcmiy/fK9XQuulchFknRygM=">AAAB6HicbVDLSgNBEOyNrxhfUY9eBoPgKeyKr2PQiydJwDwgWcLspJOMmZ1dZmaFsOQLvHhQxKuf5M2/cZLsQRMLGoqqbrq7glhwbVz328mtrK6tb+Q3C1vbO7t7xf2Dho4SxbDOIhGpVkA1Ci6xbrgR2IoV0jAQ2AxGt1O/+YRK80g+mHGMfkgHkvc5o8ZKtftuseSW3RnIMvEyUoIM1W7xq9OLWBKiNExQrdueGxs/pcpwJnBS6CQaY8pGdIBtSyUNUfvp7NAJObFKj/QjZUsaMlN/T6Q01HocBrYzpGaoF72p+J/XTkz/2k+5jBODks0X9RNBTESmX5MeV8iMGFtCmeL2VsKGVFFmbDYFG4K3+PIyaZyVvcvyRe28VLnJ4sjDERzDKXhwBRW4gyrUgQHCM7zCm/PovDjvzse8NedkM4fwB87nD6nRjNw=</latexit>
+N
+
+<latexitsha1_base64="DELtbWNarnRNLOxIHNyKKQwD8ms=">AAAB6nicbVDLSgNBEOyNrxhfUY9eBoPgKeyKr2PQi8eI5gHJEmYns8mQ2dllplcISz7BiwdFvPpF3vwbJ8keNLGgoajqprsrSKQw6LrfTmFldW19o7hZ2tre2d0r7x80TZxqxhsslrFuB9RwKRRvoEDJ24nmNAokbwWj26nfeuLaiFg94jjhfkQHSoSCUbTSQzcRvXLFrbozkGXi5aQCOeq98le3H7M04gqZpMZ0PDdBP6MaBZN8UuqmhieUjeiAdyxVNOLGz2anTsiJVfokjLUthWSm/p7IaGTMOApsZ0RxaBa9qfif10kxvPYzoZIUuWLzRWEqCcZk+jfpC80ZyrEllGlhbyVsSDVlaNMp2RC8xZeXSfOs6l1WL+7PK7WbPI4iHMExnIIHV1CDO6hDAxgM4Ble4c2Rzovz7nzMWwtOPnMIf+B8/gBS/Y3X</latexit>
+
+<latexit sha1_base64="dgOZuxBY2OpAcufcZ7ubCRzxlzw=">AAACFHicbVDLSsNAFJ3UV62vqEs3g0UQLCURqW6EohuXFfqCJoTJdNIOnUnCzEQoIR/hxl9x40IRty7c+TdO2iy09cDAmXPu5d57/JhRqSzr2yitrK6tb5Q3K1vbO7t75v5BV0aJwKSDIxaJvo8kYTQkHUUVI/1YEMR9Rnr+5Db3ew9ESBqFbTWNicvRKKQBxUhpyTPP2l5q16wMXkPNnHhM5x/bsqBTgw5PHI7UWPBUZp5ZterWDHCZ2AWpggItz/xyhhFOOAkVZkjKgW3Fyk2RUBQzklWcRJIY4QkakYGmIeJEuunsqAyeaGUIg0joFyo4U393pIhLOeW+rsw3lIteLv7nDRIVXLkpDeNEkRDPBwUJgyqCeUJwSAXBik01QVhQvSvEYyQQVjrHig7BXjx5mXTP63aj3ri/qDZvijjK4Agcg1Ngg0vQBHegBToAg0fwDF7Bm/FkvBjvxse8tGQUPYfgD4zPH6NGnCE=</latexit>
+T1,0
+
+=T
+
+,0 = 100 µs
+
+<latexit sha1_base64="IGpIoFOkPd8duc1agqF0/nkrg8I=">AAACFHicbVDLSsNAFJ34rPUVdelmsAiCpSSi1Y1QdOOyQl/QhDCZTtqhM0mYmQgl5CPc+CtuXCji1oU7/8ZJm4W2Hhg4c8693HuPHzMqlWV9G0vLK6tr66WN8ubW9s6uubffkVEiMGnjiEWi5yNJGA1JW1HFSC8WBHGfka4/vs397gMRkkZhS01i4nI0DGlAMVJa8szTlpfaVSuD11AzJx7R2efCsqBThQ5PHI7USPBUZp5ZsWrWFHCR2AWpgAJNz/xyBhFOOAkVZkjKvm3Fyk2RUBQzkpWdRJIY4TEakr6mIeJEuun0qAwea2UAg0joFyo4VX93pIhLOeG+rsw3lPNeLv7n9RMVXLkpDeNEkRDPBgUJgyqCeUJwQAXBik00QVhQvSvEIyQQVjrHsg7Bnj95kXTOana9Vr8/rzRuijhK4BAcgRNgg0vQAHegCdoAg0fwDF7Bm/FkvBjvxsesdMkoeg7AHxifP6minCU=</latexit>
+T1,0
+
+=T
+
+,0 = 500 µs
+
+P
+
+<latexit sha1_base64="srXFrCwsrpjam54ROXR7MOLu4Xw=">AAAB+HicbVDLSsNAFL2pr1ofjbp0M1gEN5ZEfC2LblxWsA9oQ5lMJ+3QySTMTIQa8iVuXCji1k9x5984abPQ1gMDh3Pu5Z45fsyZ0o7zbZVWVtfWN8qbla3tnd2qvbffVlEiCW2RiEey62NFORO0pZnmtBtLikOf044/uc39ziOVikXiQU9j6oV4JFjACNZGGthVF52ifoj1mGCeNrOBXXPqzgxombgFqUGB5sD+6g8jkoRUaMKxUj3XibWXYqkZ4TSr9BNFY0wmeER7hgocUuWls+AZOjbKEAWRNE9oNFN/b6Q4VGoa+mYyj6gWvVz8z+slOrj2UibiRFNB5oeChCMdobwFNGSSEs2nhmAimcmKyBhLTLTpqmJKcBe/vEzaZ3X3sn5xf15r3BR1lOEQjuAEXLiCBtxBE1pAIIFneIU368l6sd6tj/loySp2DuAPrM8fjVqSZw==</latexit>
+1
+
+Figure 4. Determining optimal transmon parameters. a Schematic representation of the square grid architecture, with high-
+
+(dark blue) and low-frequency (light blue) transmons, connected via tunable couplers (green). b Values of EJ and EC of Qubit 2
+
+(q2) from different experimental implementations of the tunable coupler transmon architecture. Both parameters are extracted from the reported q2 and q2 , and therefore the points are only an approximation50. The annotations refer to the following references [1] Collodo, M. C., et al. (2020)46, [2] Xu, Y., et al. (2020)44 [3] Sung, Y., et al. (2021)36, [4] Wu, Y., et al.
+(2021)11, [5] Xu, H., et al. (2021)37 and [6] Google Quantum AI (2022)8. The black lines represent constant ratios of EJ/EC
+
+and the red lines correspond to contours of constant qubit frequency q2 . c Schematic representation of the circuit used to infer the weights in Eqs. 25 and 26, with the state preparation pictured on the left (in purple), single-qubit  and /2-rotations in
+
+green and blue respectively, and the two-qubit CZ gate in orange. N is the number of times the pictured circuit (without the
+
+state preparation) is repeated before measurement and therefore an integer determined by the reference coherence time. In our
+
+case, we consider N =
+
+T1,0 10(tTQG +2tSQG )
+
+. d The function 1 - P defined in Eq. 26 plotted for different values of the second
+
+(higher frequency) transmon EJ and EC. We consider a single-qubit gate implemented with a Gaussian DRAG pulse with a
+
+duration of tSQG = 16 ns, a two-qubit gate duration of tTQG = 50 ns and three different reference coherence times indicated on top of each panel. For all three cases, the reference T,0 = T1,0 at EJ = 12 · h GHz and EC = 0.2 · h GHz for Qubit 2 (q2) with the parameters of Qubit 1 (q1) given in Table 1. All the parameters (transmon parameters and decay times) are scaled
+
+accordingly to different values of EJ and EC, and for each qubit individually, as described in Tables 1 and 2. The striped green
+
+area marks the region in the plot with the lowest values of 1 - P, defined by the 10th percentile of the plotted values. The
+
+darker green contour is obtained with a density matrix simulation of the circuit from panel c with the same errors, but instead of
+
+evaluating the function 1 - P, it is obtained by minimizing the infidelity of the state before measurement. The lighter green
+
+dotted contour is the optimal region obtained using the advanced noise model from Table 2.
+
+In the following, we consider two noise models. It has been demonstrated that the gate infidelity due to decoherence is, up to first order, independent of the unitary dynamics84. Therefore, in the basic noise model, presented in Table 2, both T1 and T2 decay are modeled by applying the corresponding Kraus operators after the gate operation. We further assume that the detuning between the computational transmons is consistently q1 - q2  q2 , and the anharmonicity of the qubits is similar. Given these conditions, we parameterize the entire system in terms of EJ and EC of the higher-frequency transmon. Examples of parameter values, obtained from experimental demonstrations of CZ gates, are plotted in Fig. 4b.
+In the advanced noise model (see Table 2), we account for the population leaving the computational subspace during the operation of the diabatic CZ gate85. Additionally, in the advanced noise model we also consider the qubits to be detuned by q1 /2  q2 /2 during the execution of single-qubit gates (in order to prevent driving unwanted leakage transitions)86. The low-frequency qubit is then tuned so that q1 - q2 = q2 only during the two-qubit gate operation, thus increasing the flux-noise susceptibility during a CZ gate, according to Eq. 47.
+In order to quantify the performance of an algorithm execution with a specified pair of parameters EJ and EC in mind, we define a performance metric P which we will then maximize. We further define P as one minus a weighted sum of the
+12/27
+
+a
+
+b
+
+Figure 5. The relative contributions to the value of 1 - P (in Eq. 25) from the error sources listed in Table 2 (top) and the value of the performance metric P as a function of coherence times with assuming T,0 = T1,0 at the reference point (bottom). Here we considered the same reference point as used in Fig. 4d. a A well-designed system, where the parameters EJ and EC are optimally adapted so that P is maximized for each value of the coherence time on the x-axis. b P at various coherence times while keeping EJ and EC fixed, corresponding to the values marked as point [5] in Fig. 4b.
+
+infidelity contributions of all the relevant errors listed in Table 2. This sum can be written as
+
+  1 - P =
+
+wTQG,i(1 - FTQG,i) +
+
+  wSQG,i, j(1 - FSQG,i, j) +
+
+wSP,i(1 - FSP,i),
+
+i=T1,T ,parity
+
+i=q1,q2 j=T1,T ,leak.
+
+i=q1 ,q2
+
+(25)
+
+where the summation runs across all infidelity contributions, or more explicitly for the simple algorithm pictured in Fig. 4c and the basic noise model from Table 2
+
+1-P
+
+=
+
+2 5
+
+(1q1
+
++ 1q2 )tTQG
+
++
+
+1 5
+
+(q1
+
++ q2 )tTQG
+
++
+
+3 80
+
+tTQG 2h¯
+
+2q2
+
+2
+
++2
+
+1 3
+
+1q1 tSQG
+
++
+
+1 6
+
+q1 tSQG
+
++
+
+1 3
+
+Plqe1ak.
+
++
+
+2
+
+1 3
+
+1q2 tSQG
+
++
+
+1 6
+
+q2 tSQG
+
++
+
+1 3
+
+Plqe2ak.
+
++ 10(tTQG + 2tSQG) T1,0
+
+P|q11 + P|q12 .
+
+(26)
+
+The first term in Eq. 25 and first line in Eq. 26 correspond to the errors of the two-qubit gate, the second term and line to
+single-qubit gate errors and the last to the state preparation error. The performance metric for the advanced noise model can be
+derived from Table 2. A similar fidelity approximation was defined in Refs.7,87. We have introduced additional weights in the sum, in order
+to account for the relative number of single and two-qubit gates, and also to correctly take into account the fact that the
+error in state preparation occurs only once, while the gate error is significantly amplified after a number of applications of the operation. As the determination of the position of maximal P within the (EC, EJ) landscape, using which we find the optimal range for parameters, depends exclusively on the relative values of the weights wi, j, we proceed by assuming that all error terms associated with the two-qubit gate are assigned weights of wTQG = 1. As pictured in Fig. 4c, we analyze a circuit where we perform four single-qubit gates per each two-qubit gate, with half those single-qubit gates being  rotations which are more susceptible to leakage. Note that this ratio of single to two-qubit gates arises naturally with the introduction of randomized compiling into the algorithm69. The weights wSQG,T1, for the decoherence induced infidelity during a single-qubit gate therefore have a value of 2 (since a  and /2 rotation are applied) per qubit, while the leakage error wSQG,leak. = 1 per each qubit. Lastly, the thermal state preparation error is weighted so that wSP = 10(tTQG + 2tSQG)/T1,0, since this quantity is the inverse of the approximate number of single and two-qubit gates that we can perform within a specified coherence time T1,0 at the reference point. Therefore, the performance metric P approximates the fidelity of the simple circuit displayed in Fig. 4c.
+The values of 1 - P from Eq. 26 for certain parameters are plotted in Fig. 4d. Due to the fact that the maximum of P is an optimal solution only for the circuit pictured in Fig. 4c, we have plotted an optimal region of parameters defined by the 10th percentile of the points with the lowest value of 1 - P. This region is defined so that the parameters of the system can be further fine-tuned within the optimal area. This optimal region is also contrasted with the optimal region obtained with a density matrix simulation of the same circuit, and the good agreement between the curves shows that P is a valid performance metric.
+
+13/27
+
+Preparation
+1. Identify: a) relevant error sources b) tunable parameters
+
+2. Analyze scaling of infidelity contributions w.r.t. free parameter set
+
+Optimization loop
+3. Measure prefactors of the scaling laws
+6. Fabricate new device [based on 5.]
+
+5. Identify better parameter set
+
+Finish
+YES Condition satisfied?
+NO
+4. Re-scale the error contributions
+[according to step 2]
+
+Figure 6. General quantum processor parameter optimization procedure. The procedure is composed of two parts: the preparatory phase and the actual optimization. The optimization loop is composed of first obtaining the necessary data to evaluate the performance metric from Eq. 25 (step 3), after which we can determine whether the value of P is good enough or whether the optimization should continue. In the latter case, the performance metric is extrapolated to different values of the quantum processor parameters (from step 1.b) we wish to tune as plotted in Fig. 4d and a better parameter set is identified in step 5, based on the results from step 4. Afterwards, a new device is fabricated with the improved parameter set and the cycle repeats.
+
+We also observe good alignment between the optimal regions of the two distinct considered noise models, with the second
+
+model anticipated to offer greater accuracy. The discrepancy is larger at lower coherence times, since both models differ mainly
+
+in the decoherence modeling of the diabatic CZ gate. Further numerical tests have shown that the more accurate infidelity formulas are the main reason for the difference85, rather than the increased flux-sensitivity of Qubit 1 during two-qubit gates, or
+
+the differing transmon idling frequency configurations.
+
+The color scale corresponding to the 1 - P has four distinct less-favorable regions, corresponding to the error sources in
+
+Table 2. For small EC and, consequently, low anharmonicity q2 , the overall fidelities are low due to relatively large errors caused by leakage during single-qubit gates. For small EJ and large EC, EJ/EC has a low value and therefore the system experiences relatively large errors arising from parity switching events. If both EJ and EC are large, the coherence times are
+short and, therefore, the dominating source of infidelity. Moving perpendicularly to the constant frequency contours towards
+
+lower values of EC and EJ, results in lower frequencies and, thus increased errors caused by thermal excitations. On the other hand, when considering near-future transmons with coherence times close to 0.5 ms48,49 in Fig. 4d, we observe
+
+that the optimal region is shifted towards larger values of EC, and is even limited by the parity-switching effects in the bottom
+right corner, thus demonstrating the importance of this effect in future QPU design, when two-qubit gate infidelities surpass the limit of 10-3 infidelity.
+By comparing the data in Fig. 4b and d, we observe that the implementation by Xu, H., et al. (2021)37 is close to the
+
+parity-switching induced error region. Since the pure dephasing times of the system were not reported we are not able to assess
+
+the relative contribution of the parity switching error to this gate implementation. However, using the results shown in Eqs. 11
+
+and 17, we observe that the parity-switching-error induced infidelity for the parameters is estimated to be 1 - F  2 · 10-3.
+
+As a comparison, and 1/q12 = 28.8
+
+the reported 1 µs37. Together
+
+decay rates (measured in the idling configuration) in the reference were 1/1q1 = 20.8 with the reported gate time, these decay times correspond to an infidelity contribution
+
+µs of
+
+approximately 6 · 10-4, as given by the expression in Table 2. These results show that for this specific implementation of the
+
+diabatic CZ gate, the described effects of the parity switches are comparable, and possibly even greater than the T1 decay induced infidelity.
+
+The shifts of the optimal region with increasing coherence times seen in Fig. 4d mean that the qubit parameters must
+
+be adapted to the currently achievable coherence times. Fig. 5a shows how the performance metric P increases with the
+
+achievable coherence properties of the system, provided that the parameters EJ and EC are adapted to the coherence times. On the other hand, Fig. 5b displays the value of the function P without changing EJ and EC. Although the performance metric P on panels a and b is initially largely coherence limited, the assumption of fixed parameters EJ and EC in the simulations of Fig. 5b shows that simply increasing the coherence times does not necessarily give better fidelities if the effects of other sources
+
+of error are not taken into account. In this case, the parity switching error becomes the dominant error source, as seen from the
+
+upper panel in Fig. 5b.
+
+It is also important to mention what other aspects of successfully operating a transmon tunable coupler based quantum
+
+14/27
+
+computer were not included in the presented analysis.
+· We are neglecting any possible cross-talk effects between next-nearest neighbors.
+· Idling errors were discussed in this work, but not included in this analysis, as their contribution depends significantly on the specific algorithm being implemented. Taking also this effect into account, the area with low EJ/EC is even less favorable.
+· Other sources of decoherence are expected to have smaller contributions and therefore do not significantly affect the findings presented here.
+· The TLS environment is random, meaning that the scaling shown in Table 2 only holds for the average of a large number of qubits. Additionally, the T1 decay rate is also heavily influenced by the design, i.e., the exact geometry of the capacitor pads of the transmon, meaning that the presented results are only valid for a comparison of qubits with similar designs.
+· Recently, two-qubit gates with tunable couplers idled below the qubit frequencies have been demonstrated35,41. In such implementations, the presence of thermal coupler excitations limit the gate performance at lower qubit frequencies in a more complex manner. Our analysis in the low frequency regime therefore only holds for the original tunable coupler proposals, where the coupler is idled above the computational transmons.
+While the results in Figs. 4d and 5a,b demonstrate how the knowledge about the error contributions can be used to guide the design of superconducting circuits, the scheme can easily be generalized to any type of quantum processor and any set of error sources. The only requirement is that the infidelity contribution of each error source depending on the tunable parameters of the processor can be evaluated either analytically or numerically. Especially the latter is typically feasible for errors which are local, i.e. do not affect a large number of components.
+The schematic in Fig. 6 shows how the optimization procedure can be generalized to different quantum processor parameters and errors. The preparatory phase includes first identifying the parameters of the quantum processor we wish to optimize as well as the error sources whose contributions depend on these parameters (step 1). In the transmon example this corresponds to EJ and EC of the high-frequency qubit and the list of error sources in Table 2. In the second step an analysis of the infidelity contributions of the selected error sources with respect to the tunable parameters is performed, as described in Table 2. At this point, analytical formulas, such as the one in Eq. 18, are invaluable. However, in certain cases numerical simulations are needed to obtain these relations. Generally speaking, numerical simulations are feasible in the case when the error source is local to a small number of qubits (i.e. the size of the Hilbert system for the simulation is not too large).
+Once the preparatory phase is complete, the optimization step of the processor can commence by first obtaining the scaling coefficients needed to evaluate the infidelity contributions of each error (step 3 in Fig. 6), and hence evaluate the performance metric P. This step can include measurements of the average coherence times of the qubits, their effective temperatures, etc. In some cases, such as for the parity switching error described in this manuscript, no additional measurements are required. Once the performance metric is evaluated one can decide whether to proceed with the optimization based on a predefined condition which can be chosen arbitrarily. As an example, in Fig. 4d, the convergence condition is satisfied if the current QPU parameters are within the optimal region defined by the top 10th percentile. If the value of the performance metric was found to be insufficient, a new set of parameters is chosen based on the the landscape of the performance metric (step 5), as shown in Fig. 4d.
+Discussion
+We have provided a novel framework for the optimization of circuit parameters that can be used to guide the future design of transmon-based quantum computers. Our findings reveal the presence of a distinct global performance peak within the EJ and EC parameter space, which has not been identified before. Moreover, our optimization procedure can be straightforwardly extended to more error sources, provided that the scaling of the error as a function of the system parameters is known analytically, or the infidelity contribution can be evaluated numerically. The latter is typically realistic as long as the error is sufficiently local, i.e., it depends only on the parameters of a handful of transmons at most. While we have based our analysis on transmon qubits connected via tunable couplers, the same principles, albeit with different error sources, can be applied to different types of qubits2 or co-design chips88. Additionally, more parameters than just EJ and EC can be optimized, e.g., also the gate durations can be considered as free parameters since they are realistically easy to adjust in experiments. The limiting factor here are the errors for which the analytical behavior is unknown and numerical interpolation in a large parameter space is too demanding.
+We have chosen to present a range of optimal parameters, rather than prescribing a single optimal value for EJ and EC since additional improvements of the noise models are expected to improve the accuracy and reliability of the procedure. An extension of the framework in the tunable coupler example would include also optimizing the EJ and EC of the coupler
+15/27
+
+transmon, as well as the couplings between the three transmons of the system. We are not aware of any analytical results linking
+the gate infidelity with these parameters, however it is known that the coupler coherence affects the effective qubit decoherence due to the hybridization of the states39,40. Correctly taking into account the effects of different coupling strengths necessitates a good understanding of the effect of the state hybridization on single-qubit rotations52,86 and the two-qubit gate duration (Eq. 11). We believe that the inclusion of pulse-level numerical modeling, as presented in Ref.40, can also take into account such
+effects. Another straightforward improvement of our framework would be to consider a set of (possibly random) parameters for EJ and EC in the evaluation of the performance metric in order to better mimic the spread in transmon frequencies required to avoid unwanted resonances in a more realistic lattice82. This would also allow us to better estimate the effects of flux noise.
+It is important to acknowledge the potential influence of other noise mechanisms, not explicitly addressed in this study, on
+the optimal design parameters. Specifically for superconducting circuits, the list of error sources in Table 2 can be expanded
+to include more contributions to the circuit coherence times, such as losses due to charge-coupling to an impedance, current
+fluctuations in the flux-bias lines, etc. All of these contributions to the coherence times can be evaluated using open-source software such as scqubits89. We believe that even taking into account cross-talk effects is possible, using similar approaches as in Ref.87. Nonetheless, the results in Fig. 4d show that the optimal parameter regimes presented are robust to small
+perturbations in the idling configuration, and higher-order corrections to the noise models. Our findings, as depicted in Fig. 4d,
+reveal that a two-fold variation in the reference coherence time only marginally adjusts the optimal parameter domain. This
+observation underscores the robustness of our results, suggesting that the presence of additional, potentially sub-leading noise
+mechanisms omitted from our simulations are unlikely to precipitate a drastic alteration in the presented outcomes.
+Additionally, we have established how parity switching affects the commonly implemented tunable-coupler mediated
+diabatic and adiabatic CZ gate in a transmon based quantum computer, both analytically and numerically. We have shown
+that the parity switching error can be the main quasiparticle-related error source of the two-qubit gate. Moreover, we have demonstrated that the experimental implementation of the gate presented in Ref.37 may have a comparable, if not larger, contribution of parity-switching errors compared to all T1 decay mechanisms.
+While the tunable-coupler-based diabatic and adiabatic CPHASE gates are more relevant due to its implementation in leading large-scale experiments7,8,10,11, we believe that the effects described in this manuscript should be considered in any
+current or future transmon-based quantum gate which utilizes higher-excited states, such as the gate schemes proposed in Refs.34,35,90. Accordingly, we do not believe that the parity-switching effects play a major role in implementing iSWAP-like
+interactions in the tunable coupler architecture, since the states involved in the interaction are not significantly hybridized with the second excited state of any transmon. Furthermore, the effects on parity-switches on more general fSIM gates91 are
+expected to be of a similar magnitude as in the adiabatic CZ case presented in Fig. 3c.
+One of the primary anticipated advantages of incorporating tunable couplers into the system is the potential for on-demand complete suppression of ZZ-type interactions among the qubits. However, our research in this context has revealed that the
+stochastic nature of parity switches imposes constraints on this proposition, practically establishing a lower bound on the achievable minimum ZZ coupling strength. The magnitude of this "always on" interaction should be an important consideration
+when running longer algorithms. More specifically, this effect becomes relevant if the algorithm is long enough to accumulate a
+considerable conditional phase due to the unwanted coupling strengths shown in Fig. 3b. Since current coherence times are approaching the 1 ms limit48,49, the residual idling strength can become relevant if the described effects are not taken into
+account in the design of the transmon parameters. One way of mitigating the parity-switching effects would be to attempt to tune the offset charge ng to the point where both
+parity manifolds are degenerate. However, such a solution is not practical, since the environmental charge noise would result in a drift of the offset charge ng as was demonstrated in Refs.92,93. We further note that cos(2ng) = 0 is the low-frequency charge noise hotspot12 in which the qubit frequency is maximally sensitive to the fluctuations of the offset charge. Therefore, the qubit is expected to have lower coherence times at this particular value for ng.
+
+Methods
+
+Modelling the Tunable Coupler Circuit and Diabatic CPHASE Gate
+
+The dependence of the transmon parameters on the parity and offset charge is not explicitly shown in Eq. 5 in order to simplify
+
+the notation. However, between the transmons
+
+we note in Eq. 5,
+
+tghiaj t=thei wj holiesjyasltseomdhepaes n2d3
+
+= on
+
+8 distinct parity the frequencies,
+
+states. We emphasize also that the couplings meaning that while gq1q2 is constant, gq1,2c is
+
+time dependent. The dimensionless prefactors i j depend on the coupling capacitances, as well as self-capacitances of the
+
+transmons in the lumped-element circuit model38.
+
+The computational basis in this scheme is formed by the eigenstates of the Hamiltonian from Eq. 5 in the idling configuration
+
+(defined below), rather than the local (uncoupled) transmon states39. Since the couplings act only as a perturbation to the
+
+uncoupled states, we identify the full Hamiltonian eigenstates corresponding to the uncoupled states. More specifically, the
+
+computational state |i j, i, j  {0, 1} is the eigenstate | of the Hamiltonian in Eq. 5 with the maximal overlap ||iq1 0c jq2 |.
+
+16/27
+
+This notation is employed throughout this manuscript and we typically omit the subscript indices q1,2 and c. The kets with three indices (e.g. |i jk) always denote the local (uncoupled) Fock states of the three-transmon system. The kets with only two
+indices (e.g. |i j) are used to denote the eigenstates of the whole system that are closest to the local (uncoupled) state |i0 j.
+We denote with i j the angular frequency of the computational state |i j. These eigenenergies of these states are also used to
+computed the ZZ interaction strength ZZ, as defined in Eq. 20. However, since the coupler frequency is tunable, it is possible to find one or two frequencies c for which ZZ = 036,38,41,
+provided that the qubit-qubit detuning q1 - q2  [q2 , -q1 ]. These special frequencies are referred to as the coupler idling frequencies and denoted with cidle.
+A variety of pulse shapes can be used to implement the gate effectively and without inducing too many unwanted transitions36,39,62. Even though our analytical analysis makes minimal assumptions about the pulse shape, we need to choose a specific form for the numerical simulations. In our simulations we use the flattop Gaussian pulse described by the formula36,46
+
+1 f (t) = erf
+
+t- b
+
+- erf
+
+t -b - c
+
+-C.
+
+(27)
+
+2
+
+2
+
+2
+
+The flattop Gaussian is obtained by a convolution of a step function with duration c and a Gaussian with parameter  . The reasoning behind this choice is that the convolution of the flattop pulse with a Gaussian strongly suppresses the spectral component of the flattop pulse at higher frequencies,thus reducing the probability for unwanted transitions. An additional rise time of b is also introduced, which we fix to b = 2 2 . Since any gate must have a finite duration, we introduce a cut-off at time T = 2b + c. The constant C is then introduced to correct for the discontinuity at the beginning and the end of a pulse with finite duration. The coupler frequency is varied accordingly c(t) = cidle - A f (t). More details about the numerical simulations are given in Ref.40. The parity of the whole system is then switched from one state to the other according to the charge dispersion given by Eqs. 2 and 3.
+Since in our analytical approach we approximate the realistic pulse shape shown in Eq. 27 with a square pulse (i.e., we neglect any dynamics during the ramping up and down of the flux pulse), we have to be careful when comparing the results to those obtained with the numerical data. Particularly, the pulse duration T in the numerics is in general different than the gate duration tg we have defined in our analytical derivation, since the full duration T also includes the time needed to ramp the pulse up and down. When we compare our analytical results with numerical simulations, we first extract the number n of Rabi oscillations from the simulated data by monitoring the population of the |002 state during the gate operation. After n is determined, the analytical gate time is adjusted such that tg = n/. The effective gate time obtained in this manner does not differ significantly from the duration of the flat part of the pulse, typically less than 5 ns.
+
+The Schrieffer-Wolff Transformation
+
+The Schrieffer-Wolff (SW) transformation used in this manuscript was first introduced in Ref.94 and a similar transformation
+
+has been applied to the computational subspace of the two-qubit system in Refs.38,52. The aim of the SW transformation in
+
+our case is not to diagonalize the system, but rather to decouple the coupler states from the computational transmons, thus
+
+enabling us to only study the reduced system, i.e. we want to simplify the full Hamiltonian into a more tractable reduced model,
+
+containing only the relevant states (i.e. the states which have a significant population).
+
+The reason for this is the fact that the computational basis of the system is defined by the eigenstates of the system which
+
+have the maximum overlap with states of the form |iq1 0c jq2 , i.e. with the coupler always in the ground state. Any excitations of the coupler therefore lead to errors, so in order to analyze the ideal gate dynamics, we constrain ourselves only to the
+
+energy levels of the computational subspace and the second excited state used in the Rabi oscillation during the CPHASE gate
+
+operation.
+
+In
+
+general,
+
+a
+
+SW
+
+transformation
+
+is
+
+obtained
+
+by
+
+noting
+
+that
+
+any
+
+unitary
+
+operator
+
+can
+
+be
+
+written
+
+as
+
+U^
+
+=
+
+eS^
+
+=
+
+1
+
++
+
+S^
+
++
+
+1 2
+
+S^2
+
++
+
+.
+
+.
+
+.
+
+,
+
+where S^ is anti-hermitian, S^ = -S^. Consequently a unitary transformation of an arbitrary Hamiltonian H^ can be expanded in
+
+terms of S^ as
+
+U^ H^ U^  = H^ +
+
+S^, H^
+
+1 +
+
+S^,
+
+S^, H^
+
++ O(S^3).
+
+(28)
+
+2
+
+As is typical in perturbation theory, we introduce the index  for bookkeeping purposes, and split the full Hamiltonian into a
+diagonal part and two off-diagonal perturbations, so that H^ = H^0 + V^1 + 2V^2. Additionally we rewrite the operator S^ as a first order operator S^  S^, since if the perturbation is small, U^ should be close to identity. In our case, H^ is given in Eq. 5 and the first-order perturbation V^1 = - i=q1,q2 h¯ gic(a^i - a^i)(a^c - a^c) corresponds to the capacitive couplings of the two transmons (Qubits 1 and 2, q1,2) to the coupler (c), the direct coupling between the qubits V^2 = -h¯ gq1q2 (a^q1 - a^q1 )(a^q2 - a^q2 ) is a second order perturbation, while H^0 is a sum of the three independent anharmonic oscillator Hamiltonians. This hierarchy is chosen due to the fact that in all practical scenarios gq1q2  gq1c, gq2c38.
+
+17/27
+
+By plugging the ansaetze into Eq. 28, and grouping the terms with the same order of , we obtain
+
+U^ H^ U^  = H^0 +  V^1 + S^, H^0
+
++2
+
+V^2 +
+
+S^,V^1
+
++1 2
+
+S^, S^, H^0
+
++ O(3).
+
+(29)
+
+Looking at the first-order term, it is natural to choose S^ such that S^, H^0 = -V^1, i.e. so that we cancel any couplings to the
+coupler states up to lowest order. However in order to do so and account for the couplings to the higher state correctly, we generalize the transformation from Refs.38,52
+
+S^i = 
+nqi ,nc{0,1}
+
+(nqi + 1)(nc + 1)
+
+gqic qic + nqi qi - ncc
+
+^qniqi +1,nqi ^cnc,nc+1 - ^qniqi ,nqi +1^cnc+1,nc
+
+-
+
+gqic
+
+qic + nqi qi + ncc
+
+^qniqi +1,nqi ^cnc+1,nc - ^qniqi ,nqi +1^cnc,nc+1
+
+,
+
+S^ = S^1 + S^2.
+
+(30) (31)
+
+We have additionally defined qic = qi - c, qic = qi + c and the operators ^kn,m = |nm|, acting in the Hilbert space of k  {q1, c, q2}.
+Since we have assumed the coupler remains in the ground state at all times, the effective Hamiltonian is defined on the set of states {|0q1 0c0q2 , |0q1 0c1q2 , |1q1 0c0q2 , |1q1 0c1q2 , |0q1 0c2q2 }. Additionally, we neglect any couplings outside of the subspace of interest, however the resulting effective Hamiltonian still contains terms coupling the levels |000  |101 and |000  |002. These couplings are neglected in the rotating-wave approximation, as these transitions do not conserve the total
+occupation number.
+By additionally setting the energy of the ground state to zero we arrive at the effective subspace Hamiltonian from Eq. 36.
+The perturbative parameter values are given by
+
+~ qi
+
+=
+
+qi
+
++
+
+g2qic qic
+
++
+
+2g2qic qic + qi
+
++
+
+gq2ic , qic
+
+~ qi
+
+=
+
+qi
+
+-
+
+2g2qic qic
+
++
+
+2g2qic qic + qi
+
++
+
+4gq2ic qic + qi
+
++
+
+gq2ic qic
+
+-
+
+3g2qic qic + 2qi
+
+,
+
+g~01,10
+
+=
+
+gq1q2
+
++
+
+gq1cgq2c 2
+
+1111 +--
+q1c q2c q1c q2c
+
+,
+
+ g~11,02 = 2
+
+gq1q2
+
++
+
+gq1cgq2c 2
+
+1
+
+1
+
+1
+
+1
+
++
+
+--
+
+q1c q2c + q2 q1c q2c + q2
+
+.
+
+(32) (33) (34) (35)
+
+Deriving the Effective Diabatic Gate Unitary We consider here the truncated Hilbert space spanned by the states {|00, |01, |10, |11, |02}. In our analytical considerations, we thus neglect the possibility of leakage, which is a good assumption for high-fidelity gates. We emphasize that the leakage effects are included in our numerical simulations which have been made with the full Hamiltonian defined in Eq. 5.
+We additionally neglect the counter-rotating terms within the truncated Hilbert space and, after applying the Schrieffer-Wolff trnasofrmation to the Hamiltonian in Eq. 5, we obtain
+
+|00 |01 |10
+
+|11
+
+|02
+
+0
+
+0
+
+0
+
+0
+
+0  |00
+
+0
+
+H^ eff
+
+ /h¯ =^
+
+0
+
+
+
+~ q2 g~01,10 g~01,10 ~ q1
+
+0 0
+
+0
+
+|01
+
+
+
+0  |10 ,
+
+
+
+(36)
+
+0
+
+0
+
+0
+
+~q1 + ~q2
+
+g~11,02  |11
+
+0
+
+0
+
+0
+
+g~11,02
+
+2~q2 + ~ q2 |02
+
+where the parameters with the tilde denote the perturbed parameters of the original full Hamiltonian from Eq. 5 (see Eqs. 32-35) up to second order in gqic/(qi - c). Without any loss of generality, we have also assumed that the second excited state of the second qubit (q2) is used to perform the Rabi oscillation.
+The pulse shape (see Eq. 27) used to implement a diabatic CPHASE gate can typically be divided into three distinct stages: (i) fast sweep of the coupler frequency to an operation value close to the resonance with the qubits; (ii) long constant-frequency plateau at the operation frequency; (iii) fast sweep back to idling frequency of the coupler. Since the plateau is typically longer
+
+18/27
+
+compared to the fast sweeps36, and the effective coupling strengths g~01,10 and g~11,02 are significantly smaller if the coupler is further detuned, we assume that the plateau stage is the only contributor to the dynamics and the effective Hamiltonian from
+Eq. 36 is constant in time. We show later that this approximation is valid for realistic gate durations close to 40 ns and longer. If
+this approximation cannot be made, the form of the effective Hamiltonian remains unchanged. However, the analytical results
+derived in the remainder of this section become more complex due to the time dependence of the effective Hamiltonian.
+The effective Hamiltonian in Eq. 36 is block-diagonal. Using matrix exponentiation, one can readily obtain an effective
+unitary time-evolution operator. Assuming that the computational transmons are detuned by approximately one anharmonicity, i.e. ~q1 - ~q2  ~ q2 , the amplitude of the Rabi oscillation between the single-excitation states |01 and |10 is lower than that of the transition between |11 and |02 because |~q1 - ~q2 |  g~01,10. Thus, we can neglect the interaction between the single-excitation states.
+Since we are interested in the operator acting on the computational subspace of the system, we further truncate the subspace by excluding the non-computational |02 state. After also accounting for the single-qubit phases, which is typically done via virtual Z-rotations95, we obtain the effective time-evolution operator U^ (t) from Eq. 6. Eq. 7 for P11 is derived by recognizing the block-diagonal structure of the effective Hamiltonian in Eq. 36. This simplifies the analysis, reducing it to a standard two-level Rabi oscillation63. Eq. 8 is obtained by subtracting the phases of the single-excitation states from the phase of the |11 state.
+
+List of Assumptions Here we summarize all of the approximations involved in deriving Eqs. 11 and 12 in the main text. These expressions are valid under the following assumptions:
+1. The initial assumptions used to derive the effective Hamiltonian in Eq. 36 are valid, meaning that:
+
+(a) The second order perturbation theory used for the Schrieffer-Wolff transformation is valid, i.e. gq22c/(q2 - c)2  1.
+(b) The gate has low leakage outside of the considered subspace, spanned by the computational states and second excited state of the relevant qubit.
+(c) The rotating wave approximation for the counter-rotating coupling terms is justified.
+
+2. The Rabi oscillation between the states |01  |10 is negligible compared to the Rabi oscillation between |11  |02. In the perturbative regime this is fulfilled if ~ 2 + 4g~201,10   and g~201,10/(~ 2 + 4g~021,10)  g~121,02/2.
+3. The coupler frequency in the interaction regime is relatively constant. If this is not the case, the time dependency of the perturbative parameters must be taken into account.
+4. The gate has low leakage outside of the computational subspace.
+5. The simplified formula in Eq. 11 additionally neglects the terms proportional to gq1cgq2c/(q2c + q2 )3 and gq22c/(q2c + q2 )3, and smaller.
+6. We have assumed that the main contributor to the perturbation is the Qubit 2 (q2) whose second excited state is populated during the gate operation. However, if the system is designed in such a way that the charge dispersion of any of the other two transmons is significantly larger, their effects might not be negligible anymore.
+Note that both assumptions about the leakage are automatically fulfilled if the gate has a high-fidelity.
+
+Fidelity Scaling Scaling of the fidelity with the number of gates, i.e. computing the average gate fidelity of sequential application of N gates, can be found by using Eq. 14 to first define the map corresponding to a series of gates
+
+N
+(CPHASECPS)N [^ ] =
+k=0
+
+N k
+
+U^-k U^+(N-k)^ U^-(N-k)U^+k ,
+
+(37)
+
+where we have used the fact that the operators in Eq. 15 are diagonal and therefore commute with each other and also U^+ = U^-. Using the effective Kraus operators from Eq. 37, and only considering the conditional phase error, we combine this with the
+
+19/27
+
+fidelity definition from Eq. 16, and obtain
+
+d + kN=0
+
+N k
+
+tr
+
+U^CPHASE N U^-k U^+(N-k) 2
+
+F [(CPHASECPS)N ] =
+
+d2 +d
+
+(38)
+
+=
+
+4+
+
+1 2N
+
+Nk=0
+
+N k
+
+10 + 6 cos
+
+ 2
+
+(N
+
+-
+
+2k)
+
+(39)
+
+20
+
+ 
+
+1-
+
+3 80
+
+(
+
+
+
+)2
+
+1 2N
+
+N k=0
+
+N k
+
+(N - 2k)2
+
+(40)
+
+= 1 - 3 N(  )2.
+
+(41)
+
+80
+
+This result indicates that calibrating the gate such that the error is evenly split between the two parities not only increases the
+single-gate fidelity but also leads to a more generous scaling of the infidelity  N, compared to the purely coherent error case for which the error scales as  N2 69.
+
+Gate parameters for high-fidelity simulations
+
+Finding good gate parameters, both for the Hamiltonian as well as for the pulse for high-fidelity simulations, is not a trivial task.
+
+Here, we discuss how to find optimal Hamiltonian parameters at different qubit frequencies and anharamonicities. In general,
+
+the only prerequisite is that the qubits are detuned by approximately one anharmonicity, which can be seen from Eq. 36.
+
+As seen from Table 1, we keep some of the parameters in the simulation fixed, while others depend on q2 , which is varied.
+
+These parameters are related to i j
+
+are via
+
+based on the experimental the following relation gi j
+
+v=aluiejsfroim
+
+Ref.36 and the j, as described
+
+coupling coefficients from the Hamiltonian in Eq. in the main text. The small perturbation to q1
+
+5 is
+
+there in order to ensure that the energy levels are significantly non-degenerate for perturbation theory to apply. This is also
+
+completely realistic as a typical fabrication procedure results in seemingly random deviations from the designed values. More
+
+specifically, the gates simulated in Fig. 2(a,b) are obtained by varying q2 with values q2  [195, 230, 250, 270, 300] h MHz. Additionally, in order to certify that the analyzed effect is not limited to the choice of parameters presented above, the second
+
+data point of Fig. 2(a,b) at EJ/EC  50, was generated in the same way as in Table 1, but with the change to q2 = 5.1 · 2GHz. The coupler frequency in the idling configuration cidle, i.e. before and after performing a gate, is determined by diagonalizing the Hamiltonian to fulfill the condition ZZ = 0 from Eq. 20. The pulse parameters from Eq. 27 are obtained by numerically optimizing the fidelity of the gate, with fixed  = 5 ns and b = 2 2 . Typical values of the amplitude are A  1 - 1.2 · 2 GHz and c  60 ns.
+
+Scaling of Transmon Error Sources
+In this section we derive the scaling of the noise parameters shown in Table 2 with the transmon energies EJ and EC. The noise is modeled by appending the appropriate noise channel after the gate unitary, and the calculated infidelity is thus independent of the unitary dynamics, as was shown in Ref.84.
+
+Charge noise T1 The T1 decay time of transmon devices is believed to be currently limited by the presence of a discrete number of environmental two-level systems (TLSs) which couple to the qubit via their electrical dipole71­77. Therefore assuming that the charge noise in
+the system is weak enough, the interaction Hamiltonian between a transmon and an environmental TLS can be derived from Eq. 1, by replacing ng  ng +  n^g, as in Refs.72, 77, so that
+
+ H^q-TLS = 8EC n^   n^g = -4 2EC
+
+EJ 8EC
+
+1 4
+i(a^ - a^)   n^g.
+
+(42)
+
+In the above equation, we have used the asymptotic expression for the number operator n^, derived already in Ref.12. The
+operator  n^g is defined in the Hilbert space of the TLS, and is related to the parameters of the TLS - more specifically, its electrical dipole75. More importantly,  n^g does not explicitly depend on EJ and EC.
+Since the majority of the T1 experiments on transmons display exponential decays96, the dynamics can be captured by the Lindblad equation. As a second order approximation is assumed in the derivation of the Lindblad equation, the resulting decay rates are found to be proportional to the square of the coupling coefficient of the transmon to the TLS environment66. In our
+case this translates to
+
+1  EC3/2EJ1/2.
+
+(43)
+
+20/27
+
+Here we have omitted the noise spectrum of the environment, since current models assume a flat noise spectrum without any dependence on the qubit frequency75.
+
+Flux noise T
+While it is not strictly necessary for the computational transmons to be flux-tunable, it is often desired as flux-tunability additionally enables the implementation of an iSWAP gate with the same architecture36,38. Having slow flux tunability is also desirable in order to avoid resonances with TLSs in the environment which can severely limit the T1 decay time76,77, as well as helping with the issue of frequency crowding82.
+However, unlike the random noise spectrum of a TLS environment producing T1 dynamics, the noise spectrum of magneticflux noise is typically observed to have a 1/ f  frequency dependence71,78­80, with   1. The large noise-spectrum amplitude at lower frequencies means that the long-time correlation results in non-Markovian dynamics97. Assuming that the noise is
+slow enough, in order for the adiabatic approximation to hold, the interaction Hamiltonian due to a slowly fluctuating magnetic environment  ^ is given by12
+
+H^q-flux =  H^   ^ = h¯   a^a^   ^ .
+
+(44)
+
+
+
+
+
+Similarly to the T1-decay scenario, we make the assumption that the environment operator  ^ remains independent of the transmon parameters. In reality, the magnitude of this operator is contingent upon the inner product between the magnetic dipole operator of the spins and the surface vector of the SQUID loop.
+The form of the flux dispersion  /  of a split-junction transmon, with Josephson energies EJ1 and EJ2 , is determined by the relations12
+
+EJ() = EJ cos() 1 + d2 tan2(),
+
+(45)
+
+h¯ () = 8ECEJ() - EC,
+
+(46)
+
+with EJ = EJ1 + EJ2 and d = |EJ1 - EJ2 |/(EJ1 + EJ2 ). We assume that d  1, since values of d  1 result in overall longer coherence times, and the computational transmons need to be tuned over a smaller frequency range, typically on the order of  100 MHz36. In this regime, the flux dispersion can be approximated as
+
+  = (d - 1) 
+
+8EC
+
+EJ
+
+
+
+sin(2 2
+
+)
+
++
+
+O
+
+([d
+
+-
+
+1]2),
+
+(47)
+
+and the decay rate scales with the coupling coefficient98,99,
+
+ () 
+
+ 
+
+.
+
+(48)
+
+Ideally, the system is designed so that both the idling frequency of the computational qubits (i.e. the frequency at which
+
+single-qubit rotations are performed), as well as the computational transmon frequency during the two-qubit gate operation are
+
+positioned at the first-order flux-insensitive sweet-spot. In that case, it can be seen from Eq. 47, that the flux noise decay rate is
+
+identical in both the idling configuration as during the gate operation. This is true for both computational qubits.
+
+While we have explicitly addressed only the first-order flux dispersion  / , it is evident that the aforementioned conclusion remains valid even if  /  = 0. In such cases, we must consider the second order dispersion  2/ 2. A
+
+simplified scaling relationship of  with EC and EJ can be derived under the condition that the applied flux  is independent
+
+of EJ and EC, or equivalently, when we are interested in the flux-averaged decay rate ¯  =
+
+1 0
+
+d,
+
+
+
+().
+
+This
+
+yields
+
+the
+
+relation:
+
+  ECEJ,
+
+(49)
+
+which holds for all values of d. The averaging over the flux is relevant, in a more realistic scenario, where the frequencies of the system may be calibrated
+in order to avoid resonances with individual TLSs and other elements on the chip87. Due to fabrication inaccuracies83 and the stochastic nature of the TLSs, it is impossible to deterministically predict the optimal frequencies in an array of transmons, which prompts us to consider the flux-averaged decay rate scaling in Eq. 49.
+Realistic gate implementations frequently involve fast flux tuning of one of the computational transmons to enhance gate fidelity36,91. This flux tuning influences the flux dispersion of the qubit and consequently impacts the decay rate during the
+
+21/27
+
+two-qubit gate implementation. While predicting the exact detunings of all qubits proves challenging, in a more realistic noise
+model, we incorporate the flux dependence of the dephasing rate from Eq. 49 to better model the dephasing during the operation
+of one of the transmons in the two-qubit gate. Typically, tuning the low-frequency transmon (q1) proves more advantageous, as the second excited state of Qubit 2 is inherently more susceptible to decoherence.
+In the advanced noise model, we therefore consider that the frequency of Qubit 1 satisfies q1 - q2 = q2 /2  q1 /2 for all values of EJ and EC during single-qubit gate operation. This will reduce any potential leakage due to driving the |10  |02 transition when instead of |10  |1186. More specifically we consider Qubit 1 to be weakly tunable (d = 0.9) and we assume its frequency is shifted so that the two-qubit gate resonance condition is satisfied, i.e. q1 - q2 = q2 during the two-qubit gate operation. Otherwise the transmons are assumed to be idling 10 MHz away from the sweet-spot. This information is
+sufficient to compute the decay rate of Qubit 1 at a different flux bias, by using Eq. 47. We believe that pinpointing more
+specific detuning values would require pulse-level simulation.
+
+Single-Qubit Gate Leakage The low anharmonicity of the transmon is a limiting factor in the operation of single-qubit gates40,81 as fast operations drive a
+part of the population from the computational subspace into the second excited state. A straightforward and effective scheme
+for mitigating this effect while implementing single-qubit gates known as Derivative Removal by Adiabatic Gate (DRAG) was presented in Ref.81.
+Since typical pulse amplitudes used to perform single-qubit operations are typically much lower compared to the qubit
+frequency, and the drive is resonant with the qubit, we assume that the rotating-wave approximation is accurate. In the frame
+rotating with the qubit frequency, the effective Hamiltonian depends on the pulse parameters, anharmonicity, and the detuning
+between the drive and qubit frequencies. This indicates that the amount of leakage does not explicitly depend on the qubit
+frequency.
+Thus, the average gate fidelity, similar to the one defined in Eq. 16, but in this case for a single-qubit rotation around the x or y-axes, depends only on the qubit anharmonicity (or charging energy), since   -EC in the transmon limit. This means that even though analytical results are not available, the relationship can be determined numerically and interpolated. This relationship, albeit with different parameters, has already been plotted in Ref.81, and generally follows a dependence of Pleak.  EC- , 5    6, with higher exponents observed at lower EC. The independence of the single-qubit gate infidelity of the qubit frequency (within the transmon regime) was also verified numerically.
+The single-qubit gate parameters assumed in Fig. 4d and Fig 5 were a DRAG Gaussian pulse, with a  = 4 ns and a total duration tSQG = 4 . The amplitudes of both DRAG components are numerically optimized before interpolating the dependence of Pleak. on , which was used to generate Fig. 4d. The pulse drive frequency is assumed to be resonant with the qubit. More details are available in Ref.40. We note here, that most of the SQG infidelity is due to leakage, rather than phase errors.
+
+Thermal Excitation Error
+While other error sources affect the gate performance, the thermal-excitation error considered here only affects the state
+preparation. The average gate fidelity, which is defined as the fidelity averaged over Haar random distributed input states, is therefore not applicable, since this error only affects one input state. We therefore replace the average gate infidelity67
+with a state infidelity. This can also be qualitatively thought of as replacing the Haar random distribution with a delta-like distribution with a peak at the |0 state. By modeling the thermal excitation as a bit-flip channel E [^ ] = (1 - P|1)^ + P|1^x^ ^x it is straightforward to see that the state infidelity63
+
+1
+
+F = 0|E [|00|]|0 = 1 - P|1 = 1 + e- ,
+
+(50)
+
+where we have additionally assumed that the temperature is low enough such that the population of the higher-excited states is negligible.
+
+Data availability
+The datasets used and analyzed in this paper are available from the corresponding authors upon reasonable request.
+
+Code availability
+The code used to generate the data for this paper is available from the corresponding authors upon reasonable request.
+
+References
+1. Gyenis, A. et al. Moving beyond the transmon: Noise-protected superconducting quantum circuits. PRX Quantum 2, 030101, DOI: 10.1103/PRXQuantum.2.030101 (2021).
+
+22/27
+
+2. Kjaergaard, M. et al. Superconducting qubits: Current state of play. Annu. Rev. Condens. Matter Phys. 11, 369­395, DOI: 10.1146/annurev-conmatphys-031119-050605 (2020). https://doi.org/10.1146/annurev-conmatphys-031119-050605.
+3. Huang, H.-L., Wu, D., Fan, D. & Zhu, X. Superconducting quantum computing: a review. Sci. China Inf. Sci. 63, DOI: 10.1007/s11432-020-2881-9 (2020).
+4. Martinis, J. M. Surface loss calculations and design of a superconducting transmon qubit with tapered wiring. npj Quantum Inf. 8, 26, DOI: 10.1038/s41534-022-00530-6 (2022).
+5. Eun, S., Park, S. H., Seo, K., Choi, K. & Hahn, S. Shape optimization of superconducting transmon qubit for low surface dielectric loss (2022). 2211.14159.
+6. Menke, T. et al. Automated design of superconducting circuits and its application to 4-local couplers. npj Quantum Inf. 7, 49, DOI: 10.1038/s41534-021-00382-6 (2021).
+7. Arute, F. et al. Quantum supremacy using a programmable superconducting processor. Nature 574, 505­510, DOI: 10.1038/s41586-019-1666-5 (2019).
+8. Acharya, R. et al. Suppressing quantum errors by scaling a surface code logical qubit. Nature 614, 676­681, DOI: 10.1038/s41586-022-05434-1 (2023).
+9. Kim, Y. et al. Evidence for the utility of quantum computing before fault tolerance. Nature 618, 500­505, DOI: 10.1038/s41586-023-06096-3 (2023).
+10. Cao, S. et al. Generation of genuine entanglement up to 51 superconducting qubits. Nature DOI: 10.1038/ s41586-023-06195-1 (2023).
+11. Wu, Y. et al. Strong quantum computational advantage using a superconducting quantum processor. Phys. Rev. Lett. 127, 180501, DOI: 10.1103/PhysRevLett.127.180501 (2021).
+12. Koch, J. et al. Charge-insensitive qubit design derived from the cooper pair box. Phys. Rev. A 76, 042319, DOI: 10.1103/PhysRevA.76.042319 (2007).
+13. Wenner, J. et al. Excitation of superconducting qubits from hot nonequilibrium quasiparticles. Phys. Rev. Lett. 110, 150502, DOI: 10.1103/PhysRevLett.110.150502 (2013).
+14. Jin, X. Y. et al. Thermal and residual excited-state population in a 3d transmon qubit. Phys. Rev. Lett. 114, 240501, DOI: 10.1103/PhysRevLett.114.240501 (2015).
+15. Heinsoo, J. et al. Rapid high-fidelity multiplexed readout of superconducting qubits. Phys. Rev. Appl. 10, 034040, DOI: 10.1103/PhysRevApplied.10.034040 (2018).
+16. Glazman, L. & Catelani, G. Bogoliubov quasiparticles in superconducting qubits. SciPost Phys. Lect. Notes DOI: 10.21468/scipostphyslectnotes.31 (2021).
+17. Catelani, G. & Pekola, J. P. Using materials for quasiparticle engineering. Mater. for Quantum Technol. 2, 013001, DOI: 10.1088/2633-4356/ac4a75 (2022).
+18. Catelani, G. et al. Quasiparticle relaxation of superconducting qubits in the presence of flux. Phys. Rev. Lett. 106, 077002, DOI: 10.1103/PhysRevLett.106.077002 (2011).
+19. Catelani, G., Schoelkopf, R. J., Devoret, M. H. & Glazman, L. I. Relaxation and frequency shifts induced by quasiparticles in superconducting qubits. Phys. Rev. B 84, 064517, DOI: 10.1103/PhysRevB.84.064517 (2011).
+20. Córcoles, A. D. et al. Protecting superconducting qubits from radiation. Appl. Phys. Lett. 99, 181906, DOI: 10.1063/1. 3658630 (2011). https://pubs.aip.org/aip/apl/article-pdf/doi/10.1063/1.3658630/16731205/181906_1_online.pdf.
+21. Catelani, G., Nigg, S. E., Girvin, S. M., Schoelkopf, R. J. & Glazman, L. I. Decoherence of superconducting qubits caused by quasiparticle tunneling. Phys. Rev. B 86, 184514, DOI: 10.1103/PhysRevB.86.184514 (2012).
+22. Catelani, G. Parity switching and decoherence by quasiparticles in single-junction transmons. Phys. Rev. B 89, 094522, DOI: 10.1103/PhysRevB.89.094522 (2014).
+23. Pop, I. M. et al. Coherent suppression of electromagnetic dissipation due to superconducting quasiparticles. Nature 508, 369­372, DOI: 10.1038/nature13017 (2014).
+24. Riwar, R.-P. et al. Normal-metal quasiparticle traps for superconducting qubits. Phys. Rev. B 94, 104516, DOI: 10.1103/ PhysRevB.94.104516 (2016).
+25. Hosseinkhani, A., Riwar, R.-P., Schoelkopf, R. J., Glazman, L. I. & Catelani, G. Optimal configurations for normal-metal traps in transmon qubits. Phys. Rev. Appl. 8, 064028, DOI: 10.1103/PhysRevApplied.8.064028 (2017).
+23/27
+
+26. Hosseinkhani, A. & Catelani, G. Proximity effect in normal-metal quasiparticle traps. Phys. Rev. B 97, 054513, DOI: 10.1103/PhysRevB.97.054513 (2018).
+27. Sun, L. et al. Measurements of quasiparticle tunneling dynamics in a band-gap-engineered transmon qubit. Phys. Rev. Lett. 108, 230509, DOI: 10.1103/PhysRevLett.108.230509 (2012).
+28. Riwar, R.-P. & Catelani, G. Efficient quasiparticle traps with low dissipation through gap engineering. Phys. Rev. B 100, 144514, DOI: 10.1103/PhysRevB.100.144514 (2019).
+29. Marchegiani, G., Amico, L. & Catelani, G. Quasiparticles in superconducting qubits with asymmetric junctions. PRX Quantum 3, 040338, DOI: 10.1103/PRXQuantum.3.040338 (2022).
+30. Pan, X. et al. Engineering superconducting qubits to reduce quasiparticles and charge noise. Nat. Commun. 13, 7196, DOI: 10.1038/s41467-022-34727-2 (2022).
+31. Smith, W. C., Kou, A., Xiao, X., Vool, U. & Devoret, M. H. Superconducting circuit protected by two-cooper-pair tunneling. npj Quantum Inf. 6, 8, DOI: 10.1038/s41534-019-0231-2 (2020).
+32. Strauch, F. W. et al. Quantum logic gates for coupled superconducting phase qubits. Phys. Rev. Lett. 91, 167005, DOI: 10.1103/PhysRevLett.91.167005 (2003).
+33. Li, S. et al. Realisation of high-fidelity nonadiabatic cz gates with superconducting qubits. npj Quantum Inf. 5, 84 (2019).
+34. Caldwell, S. A. et al. Parametrically activated entangling gates using transmon qubits. Phys. Rev. Appl. 10, 034050, DOI: 10.1103/PhysRevApplied.10.034050 (2018).
+35. Sete, E. A., Chen, A. Q., Manenti, R., Kulshreshtha, S. & Poletto, S. Floating tunable coupler for scalable quantum computing architectures. Phys. Rev. Appl. 15, 064063, DOI: 10.1103/PhysRevApplied.15.064063 (2021).
+36. Sung, Y. et al. Realization of high-fidelity cz and zz-free iswap gates with a tunable coupler. Phys. Rev. X 11, 021058, DOI: 10.1103/PhysRevX.11.021058 (2021).
+37. Xu, H. et al. Realization of adiabatic and diabatic CZ gates in superconducting qubits coupled with a tunable coupler. Chin. Phys. B 30, 044212, DOI: 10.1088/1674-1056/abf03a (2021).
+38. Yan, F. et al. Tunable coupling scheme for implementing high-fidelity two-qubit gates. Phys. Rev. Appl. 10, 054062, DOI: 10.1103/PhysRevApplied.10.054062 (2018).
+39. Chu, J. & Yan, F. Coupler-assisted controlled-phase gate with enhanced adiabaticity. Phys. Rev. Appl. 16, 054020, DOI: 10.1103/PhysRevApplied.16.054020 (2021).
+40. Papic, M., Auer, A. & de Vega, I. Fast estimation of physical error contributions of quantum gates (2023). 2305.08916.
+41. Marxer, F. et al. Long-distance transmon coupler with cz-gate fidelity above 99.8%. PRX Quantum 4, 010314, DOI: 10.1103/PRXQuantum.4.010314 (2023).
+42. Goto, H. Double-transmon coupler: Fast two-qubit gate with no residual coupling for highly detuned superconducting qubits. Phys. Rev. Appl. 18, 034038, DOI: 10.1103/PhysRevApplied.18.034038 (2022).
+43. Stehlik, J. et al. Tunable coupling architecture for fixed-frequency transmon superconducting qubits. Phys. Rev. Lett. 127, 080505, DOI: 10.1103/PhysRevLett.127.080505 (2021).
+44. Xu, Y. et al. High-fidelity, high-scalability two-qubit gate scheme for superconducting qubits. Phys. Rev. Lett. 125, 240503, DOI: 10.1103/PhysRevLett.125.240503 (2020).
+45. Jurcevic, P. & Govia, L. C. G. Effective qubit dephasing induced by spectator-qubit relaxation. Quantum Sci. Technol. 7, 045033, DOI: 10.1088/2058-9565/ac8cad (2022).
+46. Collodo, M. C. et al. Implementation of conditional phase gates based on tunable zz interactions. Phys. Rev. Lett. 125, 240502, DOI: 10.1103/PhysRevLett.125.240502 (2020).
+47. Mundada, P., Zhang, G., Hazard, T. & Houck, A. Suppression of qubit crosstalk in a tunable coupling superconducting circuit. Phys. Rev. Appl. 12, 054023, DOI: 10.1103/PhysRevApplied.12.054023 (2019).
+48. Wang, C. et al. Towards practical quantum computers: transmon qubit with a lifetime approaching 0.5 milliseconds. npj Quantum Inf. 8, 3, DOI: 10.1038/s41534-021-00510-2 (2022).
+49. Place, A. P. M. et al. New material platform for superconducting transmon qubits with coherence times exceeding 0.3 milliseconds. Nat. Commun. 12, 1779, DOI: 10.1038/s41467-021-22030-5 (2021).
+50. Willsch, D. et al. Observation of josephson harmonics in tunnel junctions (2023). 2302.09192.
+24/27
+
+51. Serniak, K. et al. Direct dispersive monitoring of charge parity in offset-charge-sensitive transmons. Phys. Rev. Appl. 12, DOI: 10.1103/physrevapplied.12.014052 (2019).
+52. Heunisch, L., Eichler, C. & Hartmann, M. J. Tunable coupler to fully decouple superconducting qubits (2023). 2306.17007.
+53. Diamond, S. et al. Distinguishing parity-switching mechanisms in a superconducting qubit. PRX Quantum 3, 040304, DOI: 10.1103/PRXQuantum.3.040304 (2022).
+54. Ristè, D. et al. Millisecond charge-parity fluctuations and induced decoherence in a superconducting transmon qubit. Nat. Commun. 4, DOI: 10.1038/ncomms2936 (2013).
+55. Serniak, K. et al. Hot nonequilibrium quasiparticles in transmon qubits. Phys. Rev. Lett. 121, 157701, DOI: 10.1103/ PhysRevLett.121.157701 (2018).
+56. Kurter, C. et al. Quasiparticle tunneling as a probe of josephson junction barrier and capacitor material in superconducting qubits. npj Quantum Inf. 8, 31, DOI: 10.1038/s41534-022-00542-2 (2022).
+57. Tennant, D. M. et al. Low-frequency correlated charge-noise measurements across multiple energy transitions in a tantalum transmon. PRX Quantum 3, 030307, DOI: 10.1103/PRXQuantum.3.030307 (2022).
+58. Thorbeck, T., Eddins, A., Lauer, I., McClure, D. T. & Carroll, M. Two-level-system dynamics in a superconducting qubit due to background ionizing radiation. PRX Quantum 4, 020356, DOI: 10.1103/PRXQuantum.4.020356 (2023).
+59. McEwen, M. et al. Resolving catastrophic error bursts from cosmic rays in large arrays of superconducting qubits. Nat. Phys. 18, 107­111, DOI: 10.1038/s41567-021-01432-8 (2021).
+60. Cardani, L. et al. Reducing the impact of radioactivity on quantum circuits in a deep-underground facility. Nat. Commun. 12, 2733, DOI: 10.1038/s41467-021-23032-z (2021).
+61. Grünhaupt, L. et al. Loss mechanisms and quasiparticle dynamics in superconducting microwave resonators made of thin-film granular aluminum. Phys. Rev. Lett. 121, 117001, DOI: 10.1103/PhysRevLett.121.117001 (2018).
+62. Rol, M. et al. Fast, high-fidelity conditional-phase gate exploiting leakage interference in weakly anharmonic superconducting qubits. Phys. Rev. Lett. 123, DOI: 10.1103/physrevlett.123.120502 (2019).
+63. Nielsen, M. A. & Chuang, I. L. Quantum Computation and Quantum Information (Cambridge University Press, 2000).
+64. Wack, A. et al. Quality, speed, and scale: three key attributes to measure the performance of near-term quantum computers (2021). 2110.14108.
+65. van den Berg, E., Minev, Z. K., Kandala, A. & Temme, K. Probabilistic error cancellation with sparse pauli­lindblad models on noisy quantum processors. Nat. Phys. 19, 1116­1121, DOI: 10.1038/s41567-023-02042-2 (2023).
+66. Breuer, H., Petruccione, F. & Petruccione, S. The Theory of Open Quantum Systems (Oxford University Press, 2002). 67. Emerson, J., Alicki, R. & Z yczkowski, K. Scalable noise estimation with random unitary operators. J. Opt. B: Quantum
+Semiclassical Opt. 7, S347, DOI: 10.1088/1464-4266/7/10/021 (2005).
+68. Wood, C. J. & Gambetta, J. M. Quantification and characterization of leakage errors. Phys. Rev. A 97, 032306, DOI: 10.1103/PhysRevA.97.032306 (2018).
+69. Hashim, A. et al. Randomized compiling for scalable quantum computing on a noisy superconducting quantum processor. Phys. Rev. X 11, 041039, DOI: 10.1103/PhysRevX.11.041039 (2021).
+70. Wallman, J. J. & Flammia, S. T. Randomized benchmarking with confidence. New J. Phys. 16, 103032, DOI: 10.1088/ 1367-2630/16/10/103032 (2014).
+71. Siddiqi, I. Engineering high-coherence superconducting qubits. Nat. Rev. Mater. 6, 875­891, DOI: 10.1038/ s41578-021-00370-4 (2021).
+72. Müller, C., Cole, J. H. & Lisenfeld, J. Towards understanding two-level-systems in amorphous solids: insights from quantum circuits. Reports on Prog. Phys. 82, 124501, DOI: 10.1088/1361-6633/ab3a7e (2019).
+73. Carroll, M., Rosenblatt, S., Jurcevic, P., Lauer, I. & Kandala, A. Dynamics of superconducting qubit relaxation times. npj Quantum Inf. 8, 132, DOI: 10.1038/s41534-022-00643-y (2022).
+74. Premkumar, A. et al. Microscopic relaxation channels in materials for superconducting qubits. Commun. Mater. 2, 72, DOI: 10.1038/s43246-021-00174-7 (2021).
+75. Cho, Y. et al. Simulating noise on a quantum processor: interactions between a qubit and resonant two-level system bath, DOI: 10.48550/ARXIV.2211.08535 (2022).
+25/27
+
+76. Lisenfeld, J. et al. Electric field spectroscopy of material defects in transmon qubits. npj Quantum Inf. 5, DOI: 10.1038/ s41534-019-0224-1 (2019).
+77. Abdurakhimov, L. V. et al. Identification of different types of high-frequency defects in superconducting qubits. PRX Quantum 3, 040332, DOI: 10.1103/PRXQuantum.3.040332 (2022).
+78. Rower, D. A. et al. Evolution of 1/ f flux noise in superconducting qubits with weak magnetic fields. Phys. Rev. Lett. 130, 220602, DOI: 10.1103/PhysRevLett.130.220602 (2023).
+79. Braumüller, J. et al. Characterizing and optimizing qubit coherence based on squid geometry. Phys. Rev. Appl. 13, 054079, DOI: 10.1103/PhysRevApplied.13.054079 (2020).
+80. Yan, F. et al. The flux qubit revisited to enhance coherence and reproducibility. Nat. Commun. 7, DOI: 10.1038/ ncomms12964 (2016).
+81. Motzoi, F., Gambetta, J. M., Rebentrost, P. & Wilhelm, F. K. Simple pulses for elimination of leakage in weakly nonlinear qubits. Phys. Rev. Lett. 103, 110501, DOI: 10.1103/PhysRevLett.103.110501 (2009).
+82. Berke, C., Varvelis, E., Trebst, S., Altland, A. & DiVincenzo, D. P. Transmon platform for quantum computing challenged by chaotic fluctuations. Nat. Commun. 13, 2495, DOI: 10.1038/s41467-022-29940-y (2022).
+83. Hertzberg, J. B. et al. Laser-annealing josephson junctions for yielding scaled-up superconducting quantum processors. npj Quantum Inf. 7, 129 (2021).
+84. Abad, T., Fernández-Pendás, J., Frisk Kockum, A. & Johansson, G. Universal fidelity reduction of quantum operations from weak dissipation. Phys. Rev. Lett. 129, 150504, DOI: 10.1103/PhysRevLett.129.150504 (2022).
+85. Abad, T., Schattner, Y., Kockum, A. F. & Johansson, G. Impact of decoherence on the fidelity of quantum gates leaving the computational subspace (2024). 2302.13885.
+86. M50. 00008: Fast Qubit Frequency Tuning Approaches for High-Fidelity CZ Gates in Superconducting Circuits (American Physical Society, 2024).
+87. Klimov, P. V. et al. Optimizing quantum gates towards the scale of logical qubits. Nat. Commun. 15, 2442, DOI: 10.1038/s41467-024-46623-y (2024).
+88. Algaba, M. G. et al. Co-design quantum simulation of nanoscale nmr. Phys. Rev. Res. 4, 043089, DOI: 10.1103/ PhysRevResearch.4.043089 (2022).
+89. Groszkowski, P. & Koch, J. Scqubits: a python package for superconducting qubits. Quantum 5, 583, DOI: 10.22331/ q-2021-11-17-583 (2021).
+90. Ghosh, J. et al. High-fidelity controlled- Z gate for resonator-based superconducting quantum computers. Phys. Rev. A 87, 022309, DOI: 10.1103/PhysRevA.87.022309 (2013).
+91. Foxen, B. et al. Demonstrating a continuous set of two-qubit gates for near-term quantum algorithms. Phys. Rev. Lett. 125, DOI: 10.1103/physrevlett.125.120504 (2020).
+92. Christensen, B. G. et al. Anomalous charge noise in superconducting qubits. Phys. Rev. B 100, 140503, DOI: 10.1103/ PhysRevB.100.140503 (2019).
+93. Wilen, C. D. et al. Correlated charge noise and relaxation errors in superconducting qubits. Nature 594, 369­373, DOI: 10.1038/s41586-021-03557-5 (2021).
+94. Bravyi, S., DiVincenzo, D. P. & Loss, D. Schrieffer­wolff transformation for quantum many-body systems. Annals Phys. 326, 2793­2826, DOI: 10.1016/j.aop.2011.06.004 (2011).
+95. McKay, D. C., Wood, C. J., Sheldon, S., Chow, J. M. & Gambetta, J. M. Efficient z gates for quantum computing. Phys. Rev. A 96, 022330, DOI: 10.1103/PhysRevA.96.022330 (2017).
+96. Burnett, J. J. et al. Decoherence benchmarking of superconducting qubits. npj Quantum Inf. 5, DOI: 10.1038/ s41534-019-0168-5 (2019).
+97. Papic, M. & de Vega, I. Neural-network-based qubit-environment characterization. Phys. Rev. A 105, 022605, DOI: 10.1103/PhysRevA.105.022605 (2022).
+98. Bergli, J., Galperin, Y. M. & Altshuler, B. L. Decoherence in qubits due to low-frequency noise. New J. Phys. 11, 025002, DOI: 10.1088/1367-2630/11/2/025002 (2009).
+99. Paladino, E., Galperin, Y. M., Falci, G. & Altshuler, B. L. 1/ f noise: Implications for solid-state quantum information. Rev. Mod. Phys. 86, 361­418, DOI: 10.1103/RevModPhys.86.361 (2014).
+26/27
+
+Acknowledgments
+We would like to thank Gianluigi Catelani and all of the employees at IQM for fruitful discussions, especially Johannes Heinsoo, Attila Geresdi, Antti Vepsäläinen, Alejandro Gómez Frieiro, Alessandro Landra, Fabian Marxer, Frank Deppe, Vladimir Milchakov, Hao Hsu, Manish Thapa and Hsiang-Sheng Ku. We would additionally like to acknowledge the support from the German Federal Ministry of Education and Research (BMBF) under Q-Exa (grant No. 13N16062), QSolid (grant No. 13N16161) and MUNIQC-SC (grant No. 13N16188).
+Author contributions
+M.P. performed the analysis of the parity-switch effects and optimal parameter regime and wrote the draft of the manuscript. J.T. performed the analytical analysis of the tunable coupler system. A.A. and I. de V. supervised the work. A.H. conceptualized and supervised the project. All authors read, revised and approved the final manuscript.
+Competing interests
+The authors declare the following competing interests: The transmon parameter design optimization procedure presented in this manuscript is part of the patent application number: EP 23193779.8.
+Tables
+
+Table 1. Table of Hamiltonian parameters (Eq. 5) with which high-fidelity CZ gates are possible.
+
+q1 c
+q2 q1 q1c q2c q1q2
+
+q2 + 10 · h MHz -110 · h MHz
+4.8 · h GHz q2 + q2 + 10 · h MHz
+0.015
+0.015
+0.001
+
+Table 2. Scaling analysis for the most relevant error sources in an architecture of flux-tunable transmons, with two noise models.
+
+Charge noise (T1) Flux noise (T )
+Leakage Parity Switch Thermal excitation
+
+Parameter scaling
+
+1
+
+=
+
+1 T1
+
+ EC3/2EJ1/2
+
+
+
+=
+
+1 T
+
+ EC1/2EJ1/2
+
+Pleak.  EC- , 5    6
+
+(  )2  e-2
+
+8EJ /EC 
+
+EC1/2EJ7/2
+
+P|1/P|0 = e- ( 8EJ EC-EC)
+
+Single-qubit gate infidelity
+
+1 3
+
+1tSQG
+
+1 6
+
+
+
+tSQG
+
+1 3
+
+Pleak.
+
+/
+
+P|1
+
+Two-qubit gate infidelity
+
+(basic noise model)
+
+2 5
+
+(q11
+
++
+
+1q2
+
+)tTQG
+
+1 5
+
+(q1
+
++
+
+q2
+
+)tTQG
+
+/
+
+3 80
+
+tTQG 2h¯
+
+2q2
+
+2
+
+/
+
+Two-qubit gate infidelity
+
+(advanced noise model)
+
+3 10
+
+q11
+
++
+
+1 2
+
+q12
+
+tTQG
+
+3 8
+
+q1
+
+(
+
+)
+
++
+
+31 40
+
+q2
+
+tTQG
+
+/
+
+3 80
+
+tTQG 2h¯
+
+2q2
+
+2
+
+/
+
+27/27
+
+

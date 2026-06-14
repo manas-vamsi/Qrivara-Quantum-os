@@ -1,0 +1,23 @@
+Traceback (most recent call last):
+  File "<string>", line 13, in <module>
+    print(i, l[:280])
+    ~~~~~^^^^^^^^^^^^
+  File "C:\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u27e9' in position 105: character maps to <undefined>
+1 transmon-qubit design parameters
+11 ways to overcome them. A judicious selection of qubit design parameters, guided by an accurate error model, plays a pivotal
+12 role in improving the performance of quantum processors. In this study, we identify optimal ranges for qubit design parameters,
+15 of a transmon, where the charge dispersion is significantly larger, a charge-parity switch will affect the conditional phase
+22 empowers us to determine an optimal range for the qubit design parameters. Substantiating our findings through exact
+23 numerical simulations, we establish that fabricating quantum chips within this optimal parameter range not only augments the
+33 experiments7–11, the suppression of charge noise comes at the cost of low anharmonicity which sets a lower bound on the
+37 only to the coherence properties of the circuit, but also include leakage errors in single qubit gates due to low anharmonicity,
+39 manuscript. To elaborate further, only taking into account the coherence properties of the transmon and the low anharmonicity,
+40 one way to achieve better performance is to increase the transmon anharmonicity (in order to suppress potential leakage errors)
+41 while keeping the frequency of the transmon fixed. The latter condition, under the assumption of constant quality factors,
+43 the transmon charge dispersion becomes more significant. One of the errors that is exponentially more pronounced in the
+44 low EJ/EC regime is related to the presence of electron-like excitations of the superconducting condensate, referred to as
+91 energy diagram of a single offset-charge-sensitive transmon with EJ/EC = 10 with two distinct parity manifolds, marked with +
+99 

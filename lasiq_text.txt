@@ -1,0 +1,1182 @@
+Laser-annealing Josephson junctions for yielding scaled-up superconducting quantum
+processors.
+Jared B. Hertzberg, Eric J. Zhang, Sami Rosenblatt, Easwar Magesan, John A. Smolin, Jeng-Bang
+Yau, Vivekananda P. Adiga, Martin Sandberg, Markus Brink, Jerry M. Chow, and Jason S. Orcutt
+IBM Quantum, IBM T.J. Watson Research Center, Yorktown Heights, NY 10598, USA
+(Dated: September 16, 2020)
+As superconducting quantum circuits scale to larger sizes, the problem of frequency crowding proves
+a formidable task. Here we present a solution for this problem in ﬁxed-frequency qubit architectures.
+By systematically adjusting qubit frequencies post-fabrication, we show a nearly ten-fold improve-
+ment in the precision of setting qubit frequencies. To assess scalability, we identify the types of
+‘frequency collisions’ that will impair a transmon qubit and cross-resonance gate architecture. Us-
+ing statistical modeling, we compute the probability of evading all such conditions, as a function of
+qubit frequency precision. We ﬁnd that without post-fabrication tuning, the probability of ﬁnding
+a workable lattice quickly approaches 0. However with the demonstrated precisions it is possible to
+ﬁnd collision-free lattices with favorable yield. These techniques and models are currently employed
+in available quantum systems and will be indispensable as systems continue to scale to larger sizes.
+I. INTRODUCTION
+Realizing robust large-scale quantum information pro-
+cessors is one of the foremost challenges in quantum
+science. Many practical applications have been proposed
+for robust quantum computers, including estimating
+the ground state energy of chemical compounds and
+implementing machine learning algorithms [1–5]. Quan-
+tum advantage relative to classical computers can be
+realized without full fault-tolerance, but requires large
+quantum circuits that a classical computer cannot
+simulate [6]. Recent demonstrations have shown qubit
+circuits nearly at the threshold for demonstrating
+quantum advantage [7]. Much work remains in order
+to realize fault-tolerant quantum processors; however,
+scale-up of solid-state quantum circuits has shown
+consistent and ongoing progress [8–15]. As the qubit
+circuits are scaled up, they must maintain high one-
+and two-qubit gate ﬁdelities, high qubit connectivity,
+and low cross-talk error which can be measured in a
+holistic sense via the quantum volume of the circuit [16].
+Lattices of ﬁxed-frequency transmon qubits represent
+a promising architecture for building systems of larger
+sizes [7]. A growing number of systems at the 20 to
+50-qubit scale are now available to users through cloud
+access. A variety of technical challenges confront fur-
+ther system scaling, including improving 3-dimensional
+circuit integration and qubit coherence. High on the
+list of such challenges is the issue of ‘frequency crowding.’
+Fixed frequency transmon qubits using the two-qubit
+cross-resonance (CR) gate form a promising architecture
+for scaling up quantum systems. Fixed-frequency trans-
+mons are largely insensitive to charge or ﬂux noise, and
+have achieved coherence times of 100 µs and growing.
+The CR gate, a hardware-eﬃcient all-microwave gate
+[17–20], is readily used to entangle these qubits with
+gate ﬁdelities above 99%, approaching the threshold for
+fault-tolerant codes [21]. To achieve these ﬁdelities, the
+CR gate needs not only high coherence qubits, but also
+a precise setting of the qubits’ frequencies. The CR gate
+activates aZX interaction by driving one ‘control’ qubit
+with a microwave pulse at the other ‘target’ qubit’s
+transition frequency. The magnitude of the ZX as well
+as other Hamiltonian terms depends on the relative
+frequencies of the two qubits [22, 23]. Diminished ZX
+magnitude increases gate time, while other terms such
+as ZZ add gate errors. Neighboring qubits having the
+wrong detuning will exhibit a ‘frequency collision’ in
+which the ZX may be suppressed or other undesirable
+eﬀects arise.
+Maintaining high gate ﬁdelities for all pairs in a lattice
+will require solving this ‘frequency crowding’ problem
+by precise setting of qubit frequencies to speciﬁed
+values, as characterized by a standard deviation σf. To
+achieve lowσf, the tunnel-junction conductance must be
+controlled with high precision. Transmon frequency f01
+follows hf01≃√8EJEC−EC, where Josephson energy
+EJ = ℏIc
+2e is many times greater than charging energy
+EC = e2
+2C [24]. In typical transmons, a photolithograph-
+ically deﬁned capacitance C has dimensions in the tens
+to hundreds of microns and varies little from qubit to
+qubit. The critical current Ic is set by a tunnel barrier
+of area∼ 100× 100 nm and thickness a few nm, and is
+thus challenging to fabricate with precision better than
+a few percent [25–28]. However, tunnel barrier resistance
+Rn is readily measurable to precision better than 0.1%
+and relates to Ic according to the Ambegaokar-Baratoﬀ
+relation Ic = π∆
+2eRn
+(where ∆ is the superconducting gap
+energy) [29]. We can therefore measure Rn before a chip
+is cooled in order to assess qubit frequency imprecision.
+The best demonstrated precision in setting Rn at time
+of fabrication is 2% [28]. A 2% variation in Rn indicates
+a fractional σf of 1%.
+Careful design of lattices can enable error correction
+codes while at the same time minimizing the likelihood
+of ‘frequency collisions’ and therefore the required σf
+for fabrication yield [30, 31]. Yet even the most robust
+designs require a fractional σf of 0.25% to 0.5%, which
+represents a factor of 2 to 4 improvement over the
+arXiv:2009.00781v4  [quant-ph]  23 Sep 2020
+2
+best literature results. To overcome such limits will
+require rework of individual qubits’ tunnel junctions
+after fabrication. Thermal anneal has been shown to
+increase tunnel resistance Rn, and laser heating has
+been demonstrated as a highly localized re-work tool
+[32–37]. However, the inherent variability of the anneal
+process itself must be overcome, and qubit frequency
+control utilizing such techniques at scale has never been
+presented in the literature.
+In this paper, we introduce an adaptive post-fabrication
+trimming technique that we use to incrementally adjust
+Rn on a qubit-by-qubit basis, thereby overcoming in-
+herent variability in both initial qubit fabrication and
+the laser anneal. For the ﬁrst time, an improvement in
+qubit frequency precision is demonstrated in terms of nar-
+rowed frequency distributions. Crucially, we demonstrate
+qubit frequency imprecision σf of the same magnitude
+as the imprecision of predicting f01 from Rn. To esti-
+mate the scalability of this technique for the fabrication
+of error-corrected lattices, we employ a statistical yield
+model based on σf relative to speciﬁc collision bounds.
+This model predicts the severity of the frequency crowd-
+ing problem for diﬀerent topologies and scales of error
+corrected multi-qubit lattices as a function of code dis-
+tance. The model demonstrates that using conventional
+transmon fabrication, scaled-up qubit lattices will fail to
+evade ‘frequency collisions’. However, our novel trimming
+technique achieves adequateσf for scalable fabrication of
+distance-3 through distance-7 heavy-square and heavy-
+hexagon codes. In particular, this technique enables the
+high yield fabrication of the distance-3 and distance-5
+heavy-hexagon lattices currently deployed as IBM cloud
+connected systems [38].
+II. RESUL TS
+A. F requency Precision σf F rom T ransmon
+F abrication
+To assess the σf resulting from qubit fabrication, we
+developed a test vehicle containing a large number of
+identically-fabricated qubits (ﬁg. 1). We cooled the chip
+in a dilution refrigerator and used dispersive readout
+through half-wave microwave resonators to measure
+qubit frequencies [39]. We measured the frequencies
+of 31 qubits to a precision better than 100 kHz using
+a Ramsey fringe method. The qubit frequencies had
+random variation σf = 132.3 MHz (ﬁg. 1), or 2.3% of
+the median frequency. After warming the qubits to room
+temperature, we measured their junction resistances.
+In ﬁg. 1, we show a plot of Rn compared to transmon
+frequency, demonstrating that the observed variation in
+σf is accounted for almost entirely by Rn variation. The
+behavior may be ﬁt to a power law of approximately
+− 1
+2 power, as expected from transmon theory and the
+Ambegaokar-Baratoﬀ formula. For a population of
+transmon qubits whose frequency scatter is dominated
+by scatter in Rn, we expect the fractional standard
+deviation in Rn to be twice that of σf. This is consistent
+with the standard deviation in junction resistances which
+is found to be σR of 365 Ω, or 4.6% of the median
+Rn. We also assess the ﬁdelity of the frequencies to the
+f-vs-Rn correlation in terms of the residual scatter after
+subtracting the ﬁt line from the frequency values. This
+appears in the inset in ﬁg. 1 and exhibits a standard
+deviation 14.5 MHz, or 0.25% of the qubit median
+frequency.
+B. T uning Using Selective Laser Anneal
+To reduceσf, we developed a technique for selective laser
+anneal to shift tunnel resistance Rn by pre-calibrated in-
+crements. (See section IV and ﬁg. 2). We demonstrate the
+achievable frequency control of this technique by shifting
+the 31 measured qubits into a two-frequency pattern. We
+employed anRn vsf correlation (ﬁg. 1) to designate the
+target resistances. We shifted 16 junctions to one tar-
+get Rn and 15 to another target Rn. After tuning, the
+group of 16 junctions had median resistance 7.984 kΩ and
+the group of 15 had median resistance 8.798 kΩ. The 31
+junctions reached their targets with an overall precision
+of σR = 51Ω, about 0.61%. In a dilution refrigerator,
+we re-measured the frequencies of the qubits in the two
+groups. Aside from two of the qubits, which we measured
+using CW spectroscopy (precision 2 MHz), all qubits were
+remeasured in the same way as in the ﬁrst cooldown. The
+resulting frequencies appear in ﬁg. 1. The two frequency
+groups are approximately normally-distributed and have
+medians f0,1 = 5.430 GHz and f0,2 = 5.7046 GHz. Cal-
+culating σf =
+√
+⟨(fi−f0,j)2⟩, where f0,j represents f0,1
+or f0,2 as appropriate for a given qubit Qi, we assess the
+overall precision σf = 14.0 MHz. This imprecision is
+nearly identical to the residual scatter from the f(R) ﬁt
+line (ﬁg. 1) which guided the tuning, and the fractional
+precision σf/⟨f⟩ = 0.25% is slightly better than half of
+the fractional precision in setting Rn. By these compar-
+isons, we see that in this experimentσf is limited by both
+the precision of settingRn and the precision of predicting
+f fromRn. Drift in Rn reported in the literature [32] does
+not appear to be a limiting factor in this study. Achieving
+smaller σf will require improvements in setting Rn. As
+we show in section IV, the laser-anneal tuning technique
+is capable of precisions of 0.3% in Rn. On that basis the
+imprecision of 14.5 MHz in predicting f from Rn would
+dominate the imprecision in σf.
+III. DISCUSSION
+Our post-fabrication trimming reduced σf by 9.5×
+compared to initial fabrication. To assess whether this
+level of precision is suﬃcient to reliably prepare lattices
+of ﬁxed-frequency transmons capable of error-correcting
+codes, we must quantify the frequency-crowding prob-
+lem. Transmon qubits are weakly anharmonic and
+have decreasing transition energies at higher levels.
+3
+7.27.0 7.4 7.6 7.8 8 8.2 8.4 8.6 8.8 9.0
+Rn (k )
+5.3
+5.4
+5.5
+5.6
+5.7
+5.8
+5.9
+6.0f01 (GHz)
+Fit Line:
+f01 = 16.4*Rn
+-0.51
+Pre-tune
+tuned
+5.3 5.4 5.5 5.6 5.7 5.8 5.9 6.0
+f01 (GHz)
+0
+2
+4
+6
+8
+number of qubits
+Un-tuned
+N = 31
+median:
+5.7025 GHz
+N = 15
+median:
+5.430 GHz
+N = 16
+median:
+5.7046 GHz
+(a)
+(b)
+(c)
+Transmon Capacitor Pads
+λ/2 Resonators Feed Lines
+-40 -20 0 20 40
+Residual from fit line (MHz)
+0
+5
+10
+number of
+qubits
+FIG. 1. (a) Chip type used to assess σf . False-colored
+image. 36 ﬁxed-frequency transmon qubits, each including a
+500 × 320 micron planar capacitor and a ∼ 0.1 × 0.1 mi-
+cron Al/AlOx/Al tunnel junction, are prepared identically
+on a 20 × 10 mm Si substrate. A half-wavelength coplanar
+waveguide resonator at each qubit enables dispersive readout.
+Resonators are frequency-multiplexed in groups of 12. (b)
+T ransmon frequency vs Rn. Power law ﬁt of pre-tuned
+population. Inset histogram (10 MHz bins) shows residual
+scatter in frequency relative to ﬁt line. (c) Distributions
+of qubit frequencies. Initial median was 5.7025 GHz and
+spread σf = 132.3 MHz (red histogram, 70 MHz bins). Us-
+ing selective laser-anneal (ﬁgure 2) we prepared these qubits
+into two distinct frequency populations with medians 5.430
+and 5.7046 GHz. (Black histograms, 10 MHz bins) Each pop-
+ulation is outlined by a gaussian curve centered at its local
+median frequency. Combined spread is σf = 14.0 MHz.
+Therefore, degeneracies among the |0⟩→| 1⟩,|1⟩→| 2⟩
+and |0⟩ → |2⟩ transitions of nearby qubits can all
+contribute to ‘frequency collisions.’ We must consider
+the relative frequencies of both nearest-neighbors and
+next-nearest-neighbors in the lattice [22, 41, 42]. Fig
+3 illustrates the relative positions of nearest-neighbor
+and next-nearest-neighbor qubits in a section of lattice,
+and table I lists the seven cases most likely to lead to
+gate errors [22]. We can think of them qualitatively as
+follows: Type 1 causes hybridization of states in Qj and
+Qk, while in type 2 the CR pulse excites Qj into the
+non-computational|2⟩ state. Type 3 excites Qk to the
+|2⟩ state, but does not require a CR tone. In condition 4,
+ZX is weak, which implies long gate times and increased
+gate error [22, 23]. In type 5, the CR gate addresses an
+additional neighboring qubit. In type 6, when one qubit
+is the target of a CR gate, its next-nearest-neighbor
+leaks to the |2⟩ state. Type 7 causes Qj to leak to the
+|2⟩ state during a CR gate.
+Around each of the ‘frequency collisions’ described in
+table I, we can designate a window of undesired fre-
+quencies. This breaks the frequency space into allowed
+and forbidden regions. Type 4 listed in table I deﬁnes
+forbidden zones where ZX coupling is too low. For
+the other six conditions, we forbid regions where the
+‘frequency collision’ is the dominant source of gate error.
+Existing multi-qubit systems with CR gates typically
+exhibit two-qubit gate errors of 1 to 2 % regardless
+of frequency [12, 41]. Ref [22] considers an eﬀective-
+Hamiltonian model for the CR gate, as a function of
+the relative frequency of control and target qubits. We
+use this model to estimate the frequency windows for
+nearest-neighbor collisions (table I, types 1 to 3) to cause
+gate errors exceeding ∼ 1 %. We make an assumption
+that similar bounds apply to next-nearest-neighbor
+interactions (types 5 to 7).
+A useful lattice of qubits should enable high quantum
+volume and fault-tolerant operation while avoiding all of
+the ‘frequency collisions’ and forbidden regions presented
+in table I. Both lattice layout and the pattern of qubit
+frequencies are relevant. We consider three types of
+lattices: square, ‘heavy-square’ and ‘heavy-hexagon’
+(ﬁg. 3). Lattices comprise qubits and two-qubit con-
+nections, each qubit being linked to no more than four
+neighbors. In many practical implementations, these
+links comprise microwave-resonant buses. A square
+lattice facilitates ‘surface code’ fault-tolerant codes [43].
+Recent literature describes hybrids of the surface code
+with Bacon-Shor type codes, which can be employed in
+‘heavy hexagon’ and ‘heavy square’ lattices to achieve
+fault-tolerance, albeit with lower error thresholds than
+the surface code [30]. In addition to the data and
+ancilla qubit roles employed in the surface code, these
+hybrid codes assign a portion of the lattice as ‘ﬂag’ qubits.
+In the square lattice, every qubit in the bulk of the
+lattice lies on a degree-four vertex, while some at edges
+have degree two or degree three. If we populate the
+4
+SHG Laser (532 nm)
+Diode pump + TEC / chiller
+½-λ plate
+PBSDumpSi-PD
+Wedge
+ShutterBS
+PBSMulti-qubit chipChilled water
+Dual stage TEC + thermal mount
+X/Y/Z Stage
+IsolatorAM
+anneal number (NA)
+resistance tuning [%]
+(a) (b)
+Increasing laser power
+FIG. 2. (a) Schematic of apparatus, “Laser Annealing of Stochastically Impaired Qubits” (LASIQ). A 532 nm
+(frequency doubled) diode-pumped solid-state laser is used as the laser annealing source. Active power calibration is accomplished
+via a half-wave plate and PBS combination, with feedback from a Si-PD. A piezoelectric mirror mount actively aligns the beam
+to the junction center via image pattern recognition . The beam is shaped as necessary to avoid direct illumination of the
+junction, and beam size is condensed 4 × using a dual-objective setup [40]. (b) Iterative anneal demonstration . Adaptive
+anneal progression towards Rn targets in 20 tunnel junctions. Greater fractional tuning requires greater anneal powers and
+anneal numbers. Abbreviations: SHG: second harmonic generation, PBS: polarizing beam splitter, Si-PD: silicon photodiode,
+AM: alignment mirror, BS: beam shaper, TEC: thermoelectric cooler.
+Type Deﬁnition Participants Bounds
+1 fj,01 =fk,01 Nearest-neighbor qubits Qj, Qk ± 17 MHz
+2 fj,02 = 2fk,01 Control qubit Qj, target qubit Qk ± 4 MHz
+3 fj,01 =fk,12 Nearest-neighbor qubits Qj, Qk ± 30 MHz
+4 fk,01 <f j,12 or fj,01 <f k,01 Control qubit Qj, target qubit Qk —
+5 fi,01 =fk,01 Qj is control to Qi and/or Qk & is nearest-neighbor to both. ± 17 MHz
+6 fi,01 =fk,12 or fi,12 =fk,01 Qj is control to Qi and/or Qk & is nearest-neighbor to both. ± 25 MHz
+7 fj,02 =fk,01 +fi,01 Qj is control to Qi and/or Qk & is nearest-neighbor to both. ± 17 MHz
+TABLE I. Seven most likely types of ‘frequency collision’. For bus-coupled transmon qubits employing cross-resonance
+gates and having anharmonicity ∼ −330 MHz. Relative qubit positions illustrated in inset of ﬁg. 3. Bounds for types 1,2,3 are
+estimated from model results [22] as the region where gate errors due to ‘frequency collision’ exceed ∼ 1 %. Bounds for types
+5,6,7 are based on those in types 1 and 3.
+square lattice with 5 distinct frequencies of qubits,
+f5 > f4 > f3 > f2 > f1, with appropriate spacing
+between the frequencies, we can avoid all the forbidden
+regions of table I [10]. In ﬁg. 3, we illustrate this
+pattern for square lattices capable of distance-5 ( d = 5)
+rotated surface codes. Condition 4 of table I requires
+fcontrol > ftarget, so the pattern also ﬁxes the direction
+of CNOT gate for each pair.
+In contrast to the square lattice, the ‘heavy square’
+lattice includes both degree-two and degree-four vertices
+in the bulk. Degree-one, -two or -three vertices appear
+at the edges. We take advantage of this pattern to
+make all the degree-two vertices control qubits, using a
+three-frequency pattern f3 > f2 > f1. Since every con-
+trol qubit (frequency f3) is linked to at most two target
+qubits, we need only two properly-chosen target-qubit
+frequencies (f1 and f2) to satisfy conditions 5, 6 and 7
+of table I, as shown in ﬁg. 3. A third type of lattice, the
+‘heavy hexagon’, uses a similar scheme. Here the bulk of
+the lattice includes degree-three and degree-two vertices.
+Additional degree-two and degree-one vertices lie at the
+edges. In this lattice, all of the ‘frequency collisions’
+and forbidden regions can be satisﬁed using only three
+frequencies f3 >f 2 >f 1, with all control qubits residing
+on degree-two vertices with frequency f3.
+We use a Monte Carlo model to quantify the frequency-
+crowding in each lattice type. We sample the qubits
+at random frequencies drawn from normal distributions
+characterized by σf, and count the collisions deﬁned in
+table I. (See section IV.) In ﬁg. 4, we show the mean
+number of ‘frequency collisions’ predicted by the Monte
+Carlo model for each lattice type and frequency pattern,
+as a function of σf. As σf → 0, the lattice approaches
+the ideal patterns of ﬁg. 3, and has zero ‘frequency
+5
+1
+3
+2
+3
+1
+3
+2
+3
+1
+3
+3
+3
+3
+2
+3
+1
+3
+2
+3
+1
+3
+2
+3
+1
+3
+3
+3
+1
+3
+2
+3
+1
+3
+2
+3
+1
+3
+2
+3
+3
+3
+2
+3
+1
+3
+2
+3
+1
+3
+2
+3
+1
+3
+3
+3
+3
+2
+3
+1
+3
+2
+3
+1
+3
+2
+3
+1
+3
+2
+3
+1
+3
+2
+3
+1
+3
+3
+3
+3
+3
+1
+3
+2
+3
+1
+3
+2
+3
+1
+3
+2
+3
+3
+3
+3
+3
+2
+3
+1
+3
+2
+3
+1
+3
+2
+3
+1
+3
+3
+3
+3
+3
+1
+3
+2
+3
+1
+3
+2
+3
+1
+3
+2
+3
+3
+3
+3
+3
+2
+3
+1
+3
+2
+3
+1
+3
+2
+3
+4
+5
+2
+3
+4
+5
+3
+4
+5
+1
+2
+3
+1
+2
+3
+4
+5
+1
+2
+3
+3
+4
+5
+1
+2
+3
+4
+5
+1
+1
+2
+3
+4
+5
+1
+2
+3
+1
+2
+3
+4
+5
+1
+4
+5
+1
+2
+4
+5
+Square Heavy Square Heavy Hexagon
+Qi
+Qj
+Qk
+D
+D
+F
+F
+F
+D
+D
+F
+F
+F
+A
+A
+FIG. 3. Lattice and frequency-pattern examples. Lattices are capable of d = 5 codes. Patterns of qubit frequencies avoid
+all conditions in table I. Statistical model is applied to these examples and to equivalent lattices at d = 3 and d = 7. (See
+Supplementary Figures 1-9.) Square lattice includes 49 qubits in 5-frequency pattern. Heavy-square lattice includes 73 qubits in
+3-frequency pattern. Heavy-hexagon lattice includes 65 qubits in 3-frequency pattern. In a portion of the heavy-hexagon lattice,
+we indicate qubits’ intended gate roles: control (black circles) or target (white circles); as well as code roles: data (D), ancilla
+(A) or ﬂag (F) [30]. Inset shows relative positions of qubits for collision deﬁnitions of table I. Qj is coupled to nearest-neighbors
+Qi and to Qk. Qubits Qi and Qk are next-nearest-neighbors.
+collisions’. As σf increases, the number of ‘frequency
+collisions’ rises steadily. As σf→f01−f12, the diﬀerent
+conditions appearing in table I all become likely, and
+a limiting number of ‘frequency collisions’ is reached.
+Yield follows the inverse trend, as seen in ﬁg. 4. As σf
+increases, the likelihood of ﬁnding a ‘collision free’ chip
+falls oﬀ sharply. While the step sizes between frequencies
+f1 to f5 are important, absolute frequency values are
+not. Setting f1 = 5.0, f2 = 5.07 and f3 = 5.14 GHz
+works as well as f1 = 5.05,f2 = 5.12 and f3 = 5.19 GHz.
+The yield and mean collision number are a function of
+the several diﬀerent collision types and bounds, so they
+are not readily susceptible to an analytic formulation.
+However, we can propose a simpliﬁed model for yield: in
+order for a lattice to be collision-free, every qubit in the
+lattice must fall within some frequency ‘window’ ±∆f
+relative to its setpoint. Presuming the qubit frequencies
+are normally distributed, the probablity of this occurring
+goes as the cumulative distribution function, raised
+to the power N, where N is the number of qubits:[∫ (∆f/σ f)
+−∞ e− 1
+2x2
+dx
+]N
+. In the yield plot in ﬁg. 4, we ﬁt
+this expression to ﬁnd ∆f for each lattice.
+These model results allow us to predict how diﬀerent
+lattice types and frequency patterns will respond to
+fabrication imprecision. As shown in ﬁg. 4, if imprecision
+σf is greater than 30 MHz, any d = 5 lattice will exhibit
+> 10 ‘frequency collisions’ of one or another of the
+types listed in table I, causing the aﬀected gates to
+have error rates above ∼ 1 %. However, if σf = 10
+MHz then on average the d = 5 square lattice will
+exhibit 5 ‘frequency collisions’, while the ‘heavy square’
+and ‘heavy hexagon’ lattices will exhibit 0.1 ‘frequency
+collision’. Considered in terms of yield, we see from ﬁg. 4
+that if σf = 10 MHz, then for a d = 5 device, a square
+lattice with 5-frequency pattern has a 0.8% likelihood
+to be ‘collision free’, whereas a ‘heavy square’ lattice
+with 3-frequency pattern has 90% likelihood and ‘heavy
+hexagon’ with 3-frequency pattern has 92% likelihood.
+Alternatively we can ask, how well do we have to control
+σf? If we seek a 10% yield, then ﬁg. 4 indicates that
+for a d = 5 device, a square lattice with 5-frequency
+pattern requires σf < 8 MHz, whereas a ‘heavy square’
+lattice with 3-frequency pattern requires σf = 16
+MHz and ‘heavy hexagon’ with 3-frequency pattern
+requires σf = 17 MHz. Although the square lattice
+requires 10 to 20 % fewer qubits than the other types at
+each distanced, it requires far better frequency precision.
+The as-fabricated σf seen in ﬁg. 1 is 132.3 MHz. (See
+section II) The Monte Carlo modeling ﬁnds that for a
+heavy-hexagon lattice at d = 3 scale this σf can enable
+0.1% yield of collision-free chips. Other lattice types and
+larger scales will all have yield ≪ 0.1%. The re-tuned
+σf = 14.0 MHz demonstrated in ﬁg. 1 will improve the
+yield in all types of lattice. Predictions of the Monte
+Carlo model for σf = 14.0 MHz appear in table II. At
+d = 5 scale the heavy-hexagon and heavy-square lattices
+and 3-frequency patterns should be collision-free nearly
+one-third of the time, while at d = 7 scale the yield is
+about four times smaller, still reasonable for prototype
+systems.
+As seen from the Monte Carlo analysis, the laser-anneal
+rework method can scale to the> 100 qubit size, enabling
+a well-chosen lattice and frequency pattern to implement
+d = 7 error-correction codes free of frequency-crowding.
+To examine needs for the next generation of chips up to
+the 1000-qubit level, we can coarsely estimate require-
+ments by extrapolating the ﬁxed window model for the
+6
+10 15 20 30 40 50 60987654
+5
+0.001
+2
+5
+0.01
+2
+5
+0.1
+2
+5
+1
+(a)
+(b)
+Heavy Hex Fixed Window Size Extrapolation (300 Q & 1000 Q)
+Frequency Standard Deviation (MHz)
+Zero-Collision Yield
+10 15 20 30 40 50 60987654
+0.1
+2
+5
+1
+2
+5
+10
+2
+5
+Frequency Standard Deviation (MHz)
+Mean Collisions (all types)
+300
+1000
+d=3 Square
+d=5 Square
+d=7 Square
+d=3 Heavy Square
+d=5 Heavy Square
+d=7 Heavy Square
+d=3 Heavy Hex
+d=5 Heavy Hex
+d=7 Heavy Hex
+FIG. 4. F requency-crowding trends as a function of
+σf . Results of Monte Carlo simulation. (See section IV.)
+(a) Average number of collisions. and (b) F raction of
+cases having zero ‘frequency collisions’. Simulation was
+applied to the lattices and frequency patterns shown in ﬁg. 3,
+capable of distance-5 codes, as well as tod = 3 andd = 7 scale
+lattices of square, heavy-square or heavy-hexagon type. (See
+Supplementary Figures 1-9 for lattice layouts and table II for
+numbers of qubits.) Color-coded dotted lines in part (b) are
+ﬁts of each lattice yield to expression
+[∫ (∆f/σ f )
+−∞ e− 1
+2x2
+dx
+]N
+,
+whereN is the number of qubits and±∆f deﬁnes an allowable
+‘window’ around frequency set-points. (See table II.) Using
+this expression, two solid red lines predict yield for the heavy-
+hexagon lattice type at 300 and 1000 qubits, using ∆f = 27.99
+and 26.32 MHz, respectively. See ﬁg. 5 for estimation of ∆ f
+as a function of qubit number.
+heavy-hexagon lattice as shown in ﬁg. 5. While the σf =
+14.0 MHz demonstrated here enables practical yield up
+to the 100 to 200 qubit scale, it is clear that roughly a
+factor of two further improvement is needed to scale to-
+wards 1000 qubits. Since this precision is also better than
+the resistance-to-frequency prediction precision shown in
+this work, development of further reﬁnements in tuning
+and frequency prediction approaches will be necessary as
+the scale of ﬁxed-frequency transmon circuits surpass the
+100 qubit milestone.
+14 MHz
+12 MHz
+10 MHz
+8 MHz
+6 MHz
+2 3 4 5 6 7 8 9
+100
+2 3 4 5 6 7 8 9
+1000
+0
+0.2
+0.4
+0.6
+0.8
+1
+26
+27
+28
+29
+30
+31
+32
+Number of Qubits
+Yield
+Window Size (MHz)
+FIG. 5. Yield scaling for heavy hexagon lattice. Fixed
+window size model. (left axis) Model yields for σf ranging
+from the 14 MHz demonstrated in this work to 6 MHz that
+would optimize future scaling yield beyond the 1000Q level.
+(right axis) Fixed window size ﬁts to the d=3, d=5 and d=7
+heavy hexagon lattice, as well as a ﬁt of these values to expres-
+sion A +B · log(NQB), extrapolated from 20 to 1000 qubits.
+This trend illustrates varying frequency crowding constraints
+as a function of lattice size.
+IV. METHODS
+A. Chip F abrication
+A chip of the kind used to determine σf and to test
+our laser-anneal rework process appears in ﬁg. 1. All
+microwave elements comprise Nb ﬁlms ∼ 200 nm thick
+on a silicon substrate. Each qubit is coupled to a
+readout resonator but is not directly coupled to any
+nearby qubits. All transmon capacitors are identical.
+Junctions are fabricated using identical electron-beam
+lithographic patterns and deposited simultaneously
+using double-angle deposition and oxidation [44]. The
+individual qubit design is similar to that used in Ref [21]
+with aharmonicityf12−f01≃ -330 MHz. Junctions have
+linear dimension∼ 100 nm and are designed for Ic of∼
+30 nA. During packaging, we accidentally damaged three
+of the 36 qubits and found these to be non-functional
+when cooled in a dilution refrigerator. We left two of the
+remaining 33 qubits un-tuned as experimental controls,
+so that our tuning demonstration includes 31 qubits.
+B. T uning Using Selective Laser Anneal
+We have built an integrated junction rework system that
+can measure and modify the junction resistance. Fig. 2
+shows a schematic of our laser annealing system, which
+we call “Laser Annealing of Stochastically Impaired
+Qubits” (LASIQ). The laser output is generated by a
+diode-pumped solid-state laser, frequency doubled to
+532 nm. Active power control of the anneal beam is
+performed using a piezo-rotary mounted waveplate and
+polarizing beam splitter (PBS), which is adaptively
+adjusted based on a pick-oﬀ beam measured on a down-
+stream silicon photodiode. A precision-timed shutter is
+7
+σf = 132.3 MHz σf = 14 MHz
+Lattice & Code Qubits Mean Yield of Mean Yield of ∆f
+frequency distance number of collision- number of collision- Window
+pattern collisions free devices collisions free devices (MHz)
+Square, d = 3 17 9 ≪ 0.1% 3 6% 13.96
+5-frequency d = 5 49 35 ≪ 0.1% 10 < 0.1% 13.23
+d = 7 97 78 ≪ 0.1% 23 ≪ 0.1% 12.12
+Heavy d = 3 25 10 ≪ 0.1% 0.4 67% 30.89
+square, 3- d = 5 73 33 ≪ 0.1% 1.5 27% 29.49
+frequency d = 7 145 70 ≪ 0.1% 3.5 6% 29.06
+Heavy d = 3 23 8 0.1% 0.4 70% 31.61
+hexagon, d = 5 65 25 ≪ 0.1% 1.2 33% 29.91
+3-frequency d = 7 127 51 ≪ 0.1% 2.7 8% 29.29
+TABLE II. Monte-Carlo model predictions of mean number of collisions and yield of collision-free chips. Full
+results of Monte-Carlo model of frequency-crowding appear in ﬁg. 4. Here we show values for as-fabricated precision σf = 132.3
+MHz, and for demonstrated frequency precision of the laser-anneal method, σf = 14 MHz. (ﬁg. 1) in diﬀerent lattices and
+frequency patterns (ﬁg. 3 and Supplementary Figures 1-9). The ∆ f values correspond to the ﬁt lines in ﬁg. 4: in order for the
+device to be collision-free, every qubit in the lattice must fall within ± this ‘window’, relative to its set-point.
+used to control the anneal duration, and beam alignment
+is performed using a mechanical mirror mount which
+directs the beam via pattern recognition to the transmon
+junction center. The beam is shaped as needed to avoid
+illuminating the junction directly [40].
+By careful control of laser power and pulse duration, we
+use this system to adjust Rn. This process overcomes
+the imprecision due to transmon fabrication, with a
+residual imprecision σf due to the rework process. To
+develop the process, we prepared a set of more than 150
+junctions identically to qubit junctions, and measured
+their response to a range of laser powers and exposure
+times. We recorded Rn shifts up to 15% relative to
+initial Rn, for anneal durations varying by an order of
+magnitude and laser powers varying by 20%. Response
+to laser power in particular was highly nonlinear. Based
+on these empirical calibrations of Rn shift to power and
+exposure, we established a qubit tuning process: We ﬁrst
+measure the transmon junction’s Rn using four-point
+probing of the transmon capacitor pads at 25 ◦C. Using
+a f(Rn) prediction based on a previously determined
+correlation curve (ﬁg. 1), we assign the junction a target
+resistance corresponding to the target frequency in a
+multiqubit chip lattice. Because the anneal can shift Rn
+in only one direction, the target must be higher than
+the initial Rn. We anneal the qubit junction using laser
+power and duration chosen from our calibration set, then
+re-measure its Rn. A junction requiring large shifts in
+Rn may require repeated anneals to reach its target,
+as shown in ﬁg. 2. The control algorithm increases the
+resistance until the measured value is within 0.3% of the
+target value. In a separate trial of tuning precision, more
+than 300 junctions were tuned to target Rns ranging
+from 0.4% to 14.5% above their initial values, and landed
+successfully within this 0.3% margin. We expect 0.3%
+imprecision in Rn to introduce 0.15% imprecision in
+transmon frequency.
+C. Monte Carlo F requency-Crowding Model
+Using a Monte Carlo model, we can estimate the inci-
+dence of ‘frequency collisions’ in a lattice as a function
+of σf. We assume that imperfect frequency-setting will
+distribute qubit frequencies normally around their design
+frequencies with standard deviation σf. For lattices of
+the type shown in ﬁg. 3, we designate 3 to 5 frequencies
+f1, f2, f3, f4, f5 spaced at regular intervals in the
+pattern shown. We set f1 = 5 GHz, similar to real-world
+transmons [38, 45]. We sample the qubit frequencies
+randomly around these values and count the collisions
+throughout the lattice, as listed in table I. This process is
+illustrated in ﬁg. 6. We repeat the frequency-assignment
+and counting to build statistics for a given lattice and
+frequency pattern. We then repeat the model for a range
+of σf values from 0 to 150 MHz. We repeat the entire
+process over a range of frequency spacings, to ﬁnd the
+spacing that minimizes ‘frequency collisions’ at each
+value of σf. As a function of σf we can then extract 1)
+the mean number of total collisions in the lattice, and 2)
+the fraction of repetitions which result in zero collisions
+(‘yield’). Our simulations used 1000 repetitions except
+to ﬁnd yield below 1% in d = 5 lattices and below 0.2%
+in d = 3 lattices, which used 4000 repetitions, and in
+d = 7 lattices to ﬁnd mean collisions for σf < 16 MHz
+or yield above 50% (100 repetitions) or to ﬁnd mean
+collisions for σf > 16 MHz (40 repetitions).
+8
+IBM Confidential –Internal use only
+IBM Quantum
+5.215.285.145.215.075.145.005.07
+5.075.145.00
+5.215.00
+5.285.215.285.21
+𝜎𝑓
+Mean frequencies
+FIG. 6. F requency collision statistical model. Left:
+Square lattice, d = 3 with 5-frequency pattern of ﬁg. 3:
+f1 = 5.00, f2 = 5.07, f3 = 5.14, f4 = 5.21, f5 = 5.28 GHz.
+To model the lattice statistically, treat the frequencies f1 to
+f5 as means of distributions. Right: Mean frequencies and
+normal distributions characterized by σf. For each position
+in the lattice, sample from the local distribution. Choose ran-
+dom frequencies in this fashion, count collisions as described
+in table I and repeat to gather statistical sample. Process is
+repeated for diﬀering spacings between mean frequencies f1
+to f5, and for diﬀerent distribution widths σf.
+[1] Kandala, A. et al. Hardware-eﬃcient variational quantum
+eigensolver for small molecules and quantum magnets.
+Nature 549, 242–246 (2017).
+[2] Havl´ ıˇ cek, V.et al. Supervised learning with quantum-
+enhanced feature spaces. Nature 567, 209–212 (2019).
+[3] Hempel, C. et al. Quantum Chemistry Calculations on
+a Trapped-Ion Quantum Simulator. Phys. Rev. X 8,
+031022 (2018).
+[4] Colless, J. et al. Computation of Molecular Spectra on
+a Quantum Processor with an Error-Resilient Algorithm.
+Phys. Rev. X 8, 011021 (2018).
+[5] Nam, Y. et al. Ground-state energy estimation of the
+water molecule on a trapped-ion quantum computer. npj
+Quantum Inf. 6, 1–6 (2020).
+[6] Kandala, A. et al. Error mitigation extends the compu-
+tational reach of a noisy quantum processor. Nature 567,
+491–495 (2019).
+[7] C´ orcoles, A. D. et al. Challenges and Opportunities of
+Near-Term Quantum Computing Systems. Proc. IEEE
+1–15 (2019).
+[8] Chow, J. M. et al. Implementing a strand of a scalable
+fault-tolerant quantum computing fabric. Nat. Comm. 5,
+4015 (2014).
+[9] C´ orcoles, A.et al. Demonstration of a quantum error
+detection code using a square lattice of four supercon-
+ducting qubits. Nat. Comm. 6, 6979 (2015).
+[10] Gambetta, J. M., Chow, J. M. & Steﬀen, M. Building
+logical qubits in a superconducting quantum computing
+system. npj Quantum Inf. 3, 2 (2017).
+[11] Takita, M. et al. Demonstration of weight-four parity
+measurements in the surface code architecture. Phys.
+Rev. Lett. 117, 210505 (2016).
+[12] Takita, M., Cross, A. W., C´ orcoles, A. D., Chow, J. M. &
+Gambetta, J. M. Experimental demonstration of fault-
+tolerant state preparation with superconducting qubits.
+Phys. Rev. Lett. 119, 180501 (2017).
+[13] Kelly, J. et al. State preservation by repetitive error de-
+tection in a superconducting quantum circuit. Nature
+519, 66–69 (2015).
+[14] Rist´ e, D. et al. Detecting bit-ﬂip errors in a logical
+qubit using stabilizer measurements. Nat. Comm. 6, 6983
+(2015).
+[15] Ofek, N. et al. Extending the lifetime of a quantum bit
+with error correction in superconducting circuits. Nature
+536, 441–445 (2016).
+[16] Cross, A. W., Bishop, L. S., Sheldon, S., Nation, P. D.
+& Gambetta, J. M. Validating quantum computers using
+randomized model circuits. Phys. Rev. A 100, 032328
+(2019).
+[17] Chow, J. M. et al. Simple All-Microwave Entangling Gate
+for Fixed-Frequency Superconducting Qubits. Phys. Rev.
+Lett. 107, 080502 (2011).
+[18] Chow, J. M. et al. Universal Quantum Gate Set Ap-
+proaching Fault-Tolerant Thresholds with Superconduct-
+ing Qubits. Phys. Rev. Lett. 109, 060501 (2012).
+[19] de Groot, P. C. et al. Selective darkening of degen-
+erate transitions for implementing quantum controlled-
+NOT gates. New J. Phys. 14, 073038 (2012).
+[20] Rigetti, C. & Devoret, M. Fully microwave-tunable uni-
+versal gates in superconducting qubits with linear cou-
+plings and ﬁxed transition frequencies. Phys. Rev. B 81,
+134507 (2010).
+[21] Sheldon, S., Magesan, E., Chow, J. M. & Gambetta, J. M.
+Procedure for systematically tuning up crosstalk in the
+cross resonance gate. Phys. Rev. A 93, 060302 (2016).
+[22] Magesan, E. & Gambetta, J. M. Eﬀective Hamiltonian
+models of the cross-resonance gate. Phys. Rev. A 101,
+052308 (2020).
+[23] Ware, M. et al. Cross-resonance interactions between
+superconducting qubits with variable detuning (2019).
+9
+Preprint at http://arxiv.org/abs/1905.11480v1.
+[24] Koch, J. et al. Charge-insensitive qubit design derived
+from the Cooper pair box. Phys. Rev. A 76, 042319
+(2007).
+[25] Potts, A., Parker, G., Baumberg, J. & de Groot, P.
+CMOS compatible fabrication methods for submicron
+Josephson junction qubits. IEE Proc.: Sci. Meas. Tech-
+nol. 148, 225–228 (2001).
+[26] Wu, X. et al. Overlap junctions for high coherence super-
+conducting qubits. Appl. Phys. Lett. 111, 032602 (2017).
+[27] Costache, M. V., Bridoux, G., Neumann, I. & Valen-
+zuela, S. O. Lateral metallic devices made by a multiangle
+shadow evaporation technique. J. Vac. Sci. Technol., B
+30, 04E105 (2012).
+[28] Kreikebaum, J. M., O’Brien, K. P., Morvan, A. & Siddiqi,
+I. Improving wafer-scale Josephson junction resistance
+variation in superconducting quantum coherent circuits.
+Supercond. Sci. Technol. 33, 06LT02 (2020).
+[29] Ambegaokar, V. & Baratoﬀ, A. Tunneling Between Su-
+perconductors. Phys. Rev. Lett. 10, 486–489 (1963).
+[30] Chamberland, C., Zhu, G., Yoder, T. J., Hertzberg, J. B.
+& Cross, A. W. Topological and Subsystem Codes on
+Low-Degree Graphs with Flag Qubits. Phys. Rev. X 10,
+011022 (2020).
+[31] Chow, J. M., Magesan, E., Steﬀen, M., Gambetta,
+J. M. & Takita, M. United States Patent (Pending):
+US20200161529A1 - Reducing qubit frequency collisions
+through lattice design (2020).
+[32] Koppinen, P. J., Vist, L. M. & Maasilta, I. J. Complete
+stabilization and improvement of the characteristics of
+tunnel junctions by thermal annealing. Appl. Phys. Lett.
+90, 053503 (2007).
+[33] Granata, C. et al. Trimming of critical current in niobium
+Josephson devices by laser annealing. J. Phys.: Confer-
+ence Series 97, 012110 (2008).
+[34] Muthusubramanian, N. et al. Local trimming of transmon
+qubit frequency by laser annealing of Josephson junc-
+tions (2019). American Physical Society March Meeting,
+B29.015.
+[35] Oliva, A. & Monaco, R. Annealing properties of high
+quality Nb/Al-AlOx/Nb tunnel junctions. IEEE Trans.
+Appl. Supercond. 4, 25–32 (1994).
+[36] Lehnert, T., Billon, D., Grassl, C. & Gundlach, K. H.
+Thermal annealing properties of NbAl/AlOxNb tunnel
+junctions. J. Appl. Phys. 72, 3165–3168 (1992).
+[37] Orcutt, J. S. & Rosenblatt, S. United States Patent:
+10418540 - Adjustment of qubit frequency through an-
+nealing (2019).
+[38] Jurcevic, P. et al. Demonstration of quantum volume 64
+on a superconducting quantum computing system (2020).
+Preprint at https://arxiv.org/abs/2008.08571.
+[39] Blais, A., Huang, R.-S., Wallraﬀ, A., Girvin, S. M. &
+Schoelkopf, R. J. Cavity quantum electrodynamics for
+superconducting electrical circuits: An architecture for
+quantum computation. Phys. Rev. A 69, 062320 (2004).
+[40] Rosenblatt, S. & Orcutt, J. S. United States Patent:
+10170681B1 - laser annealing of qubits with structured
+illumination (2019).
+[41] McKay, D. C., Sheldon, S., Smolin, J. A., Chow, J. M. &
+Gambetta, J. M. Three-Qubit Randomized Benchmark-
+ing. Phys. Rev. Lett. 122, 200502 (2019).
+[42] Malekakhlagh, M., Magesan, E. & McKay, D. C. First-
+principles analysis of cross-resonance gate operation
+(2020). Preprint at http://arxiv.org/abs/2005.00133.
+[43] Fowler, A. G., Mariantoni, M., Martinis, J. M. & Cle-
+land, A. N. Surface codes: Towards practical large-scale
+quantum computation. Phys. Rev. A 86, 032324 (2012).
+[44] Dolan, G. J. Oﬀset masks for liftoﬀ photoprocessing.
+Appl. Phys. Lett. 31, 337–339 (1977).
+[45] Sheldon, S. et al. Characterizing errors on qubit opera-
+tions via iterative randomized benchmarking. Phys. Rev.
+A 93, 012301 (2016).
+ACKNOWLEDGEMENTS
+We acknowledge funding from the Intelligence Advanced
+Research Projects Activity (IARPA) under contract
+W911NF-16-1-0114, for the multi-qubit test vehicle and
+frequency-vs-resistance correlation studies. We thank N.
+Bronn, M. Carroll, C. Chamberland, A. Cross, J. Gam-
+betta, J. Ku, M. Malekakhlagh, D. McKay, B. Plourde,
+E. Pritchett, A. Rosenbluth, M. Takita, J. Timmerwilke
+and G. Zhu for helpful discussions. We thank E. Porter
+for coding assistance, Y. Martin and R. Haight for assis-
+tance in constructing the laser optics, and R. Patel for
+photomicroscopy.
+SUPPLEMENTARY INFORMATION for
+Laser annealing Josephson junctions for yielding scaled-up superconducting quantum
+processors)
+Jared B. Hertzberg, Eric J. Zhang, Sami Rosenblatt, Easwar Magesan, John A. Smolin, Jeng-Bang
+Yau, Vivekananda P. Adiga, Martin Sandberg, Markus Brink, Jerry M. Chow, and Jason S. Orcutt
+IBM Quantum, IBM T.J. Watson Research Center, Yorktown Heights, NY 10598, USA
+(Dated: September 3, 2020)
+arXiv:2009.00781v4  [quant-ph]  23 Sep 2020
+2
+3 1
+4 2 5 3
+2 5 3 1 4
+3 1 4 2
+5 3
+Supplementary Figure 1. Distance-3 square lattice, 17 qubits, 5-frequency pattern
+3 1 3 2 3 1
+3 3 3
+1 3 2 3 1 3 2
+3 3 3
+2 3 1 3 2 3
+Supplementary Figure 2. Distance-3 heavy-square lattice, 25 qubits, 3-frequency pattern
+1 3 2 3 1 3
+3 3
+2 3 1 3 2 3 1
+3 3
+3 2 3 1 3 2
+Supplementary Figure 3. Distance-3 heavy-hexagon lattice, 23 qubits, 3-frequency pattern
+3
+4 5
+2 3 4 5
+3 4 5 1 2 3
+1 2 3 4 5 1 2 3
+3 4 5 1 2 3 4 5 1
+1 2 3 4 5 1 2 3
+1 2 3 4 5 1
+4 5 1 2
+4 5
+Supplementary Figure 4. Distance-5 square lattice, 49 qubits, 5-frequency pattern
+3 1 3 2 3 1 3 2 3 1
+3 3 3 3 3
+1 3 2 3 1 3 2 3 1 3 2
+3 3 3 3 3
+2 3 1 3 2 3 1 3 2 3 1
+3 3 3 3 3
+1 3 2 3 1 3 2 3 1 3 2
+3 3 3 3 3
+2 3 1 3 2 3 1 3 2 3
+Supplementary Figure 5. Distance-5 heavy-square lattice, 73 qubits, 3-frequency pattern
+4
+1 3 2 3 1 3 2 3 1 3
+3 3 3
+2 3 1 3 2 3 1 3 2 3 1
+3 3 3
+1 3 2 3 1 3 2 3 1 3 2
+3 3 3
+2 3 1 3 2 3 1 3 2 3 1
+3 3 3
+3 2 3 1 3 2 3 1 3 2
+Supplementary Figure 6. Distance-5 heavy-hexagon lattice, 65 qubits, 3-frequency pattern
+5
+5 1
+3 4 5 1
+4 5 1 2 3 4
+2 3 4 5 1 2 3 4
+3 4 5 1 2 3 4 5 1 2
+1 2 3 4 5 1 2 3 4 5 1 2
+3 4 5 1 2 3 4 5 1 2 3 4 5
+1 2 3 4 5 1 2 3 4 5 1 2
+1 2 3 4 5 1 2 3 4 5
+4 5 1 2 3 4 5 1
+4 5 1 2 3 4
+2 3 4 5
+2 3
+Supplementary Figure 7. Distance-7 square lattice, 97 qubits, 5-frequency pattern
+6
+3 1 3 2 3 1 3 2 3 1 3 2 3 1
+3 3 3 3 3 3 3
+1 3 2 3 1 3 2 3 1 3 2 3 1 3 2
+3 3 3 3 3 3 3
+2 3 1 3 2 3 1 3 2 3 1 3 2 3 1
+3 3 3 3 3 3 3
+1 3 2 3 1 3 2 3 1 3 2 3 1 3 2
+3 3 3 3 3 3 3
+2 3 1 3 2 3 1 3 2 3 1 3 2 3 1
+3 3 3 3 3 3 3
+1 3 2 3 1 3 2 3 1 3 2 3 1 3 2
+3 3 3 3 3 3 3
+2 3 1 3 2 3 1 3 2 3 1 3 2 3
+Supplementary Figure 8. Distance-7 heavy-square lattice, 145 qubits, 3-frequency pattern
+7
+2 3 1 3 2 3 1 3 2 3 1 3 2 3
+3 3 3 3
+1 3 2 3 1 3 2 3 1 3 2 3 1 3 2
+3 3 3 3
+2 3 1 3 2 3 1 3 2 3 1 3 2 3 1
+3 3 3 3
+1 3 2 3 1 3 2 3 1 3 2 3 1 3 2
+3 3 3 3
+2 3 1 3 2 3 1 3 2 3 1 3 2 3 1
+3 3 3 3
+1 3 2 3 1 3 2 3 1 3 2 3 1 3 2
+3 3 3 3
+3 1 3 2 3 1 3 2 3 1 3 2 3 1
+Supplementary Figure 9. Distance-7 heavy-hexagon lattice, 127 qubits, 3-frequency pattern
