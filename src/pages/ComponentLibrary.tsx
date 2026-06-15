@@ -23,7 +23,7 @@ import { useDataStore } from "@/store/useDataStore";
 import { toneChip, type Tone } from "@/lib/tones";
 import { cn } from "@/lib/utils";
 
-const kindIcon: Record<ComponentKind, typeof Cpu> = {
+const kindIcon: Record<string, typeof Cpu> = {
   transmon: Cpu,
   fluxonium: Atom,
   resonator: Radio,
@@ -142,7 +142,7 @@ export default function ComponentLibrary() {
                             >
                               <span className="text-fg-muted">{label}</span>
                               <span className="font-mono text-fg">
-                                {v}
+                                {String(v)}
                                 {unit ? <span className="text-fg-subtle"> {unit}</span> : null}
                               </span>
                             </div>

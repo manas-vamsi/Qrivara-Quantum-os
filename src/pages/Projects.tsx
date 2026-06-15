@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Plus,
@@ -34,10 +34,14 @@ const FOLDERS = [
 export default function Projects() {
   const navigate = useNavigate();
   const setNewDesignOpen = useAppStore((s) => s.setNewDesignOpen);
-  const projects = useDataStore((s) => s.projects);
+  const { projects, fetchProjects } = useDataStore();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [view, setView] = useState<"grid" | "list">("grid");
+
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
 
   const filtered = useMemo(() => {
     return projects.filter((p) => {
@@ -47,7 +51,7 @@ export default function Projects() {
         !s ||
         p.name.toLowerCase().includes(s) ||
         p.description.toLowerCase().includes(s) ||
-        p.tags.some((t: string) => t.toLowerCase().includes(s))
+        (p.tags || []).some((t: string) => t.toLowerCase().includes(s))
       );
     });
   }, [projects, q, filter]);
@@ -133,30 +137,30 @@ export default function Projects() {
                   {p.qubits}Q
                 </div>
                 <div className="flex items-center gap-1">
-                  <IconButton size="sm" aria-label="Bookmark"><Bookmark className="h-4 w-4" /></IconButton>
-                  <IconButton size="sm" aria-label="Share"><Share2 className="h-4 w-4" /></IconButton>
+                  <IconButton size="sm" aria-label="Bookmark" onClick={(e) => { e.stopPropagation(); /* Add bookmark logic */ }}><Bookmark className="h-4 w-4" /></IconButton>
+                  <IconButton size="sm" aria-label="Share" onClick={(e) => { e.stopPropagation(); /* Add share logic */ }}><Share2 className="h-4 w-4" /></IconButton>
                 </div>
               </div>
               <div className="mt-3 flex items-center gap-2">
                 <h3 className="font-display text-base font-semibold text-fg">{p.name}</h3>
-                <Badge tone={PROJECT_STATUS_TONE[p.status]} dot={p.status === "active" || p.status === "simulating"}>
+                <Badge tone={PROJECT_STATUS_TONE[p.status] || "neutral"} dot={p.status === "active" || p.status === "simulating"}>
                   {p.status}
                 </Badge>
               </div>
               <p className="mt-1 line-clamp-2 text-sm text-fg-subtle">{p.description}</p>
               <div className="mt-3 flex flex-wrap gap-1.5">
-                {p.tags.map((t: string) => (
+                {(p.tags || []).map((t: string) => (
                   <span key={t} className="rounded-md border border-line bg-surface-2 px-2 py-0.5 text-2xs text-fg-muted">
                     #{t}
                   </span>
                 ))}
               </div>
-              <div className="mt-4"><Progress value={p.progress} size="sm" /></div>
+              <div className="mt-4"><Progress value={p.progress || 0} size="sm" /></div>
               <div className="mt-auto flex items-center justify-between pt-4">
-                <AvatarGroup names={p.collaborators} size={26} max={3} />
-                <span className="text-2xs text-fg-subtle">{timeAgo(p.updatedAt)}</span>
+                <AvatarGroup names={p.collaborators || []} size={26} max={3} />
+                <span className="text-2xs text-fg-subtle">{timeAgo(p.updatedAt || p.updated_at)}</span>
               </div>
-              <Button variant="outline" size="sm" className="mt-4 w-full" onClick={() => navigate("/app/designer")}>
+              <Button variant="outline" size="sm" className="mt-4 w-full" onClick={() => navigate(`/app/designer?projectId=${p.id}`)}>
                 Open
               </Button>
             </GlowCard>
@@ -168,7 +172,7 @@ export default function Projects() {
             {filtered.map((p) => (
               <button
                 key={p.id}
-                onClick={() => navigate("/app/designer")}
+                onClick={() => navigate(`/app/designer?projectId=${p.id}`)}
                 className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-surface-2"
               >
                 <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-line bg-surface-2 font-mono text-xs font-semibold text-primary">
@@ -177,13 +181,13 @@ export default function Projects() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <h4 className="truncate text-sm font-semibold text-fg">{p.name}</h4>
-                    <Badge tone={PROJECT_STATUS_TONE[p.status]} dot={p.status === "active"}>{p.status}</Badge>
+                    <Badge tone={PROJECT_STATUS_TONE[p.status] || "neutral"} dot={p.status === "active"}>{p.status}</Badge>
                   </div>
                   <p className="truncate text-xs text-fg-subtle">{p.description}</p>
                 </div>
-                <div className="hidden w-28 sm:block"><Progress value={p.progress} size="sm" /></div>
-                <AvatarGroup names={p.collaborators} size={24} max={3} />
-                <span className="hidden w-16 shrink-0 text-right text-2xs text-fg-subtle sm:block">{timeAgo(p.updatedAt)}</span>
+                <div className="hidden w-28 sm:block"><Progress value={p.progress || 0} size="sm" /></div>
+                <AvatarGroup names={p.collaborators || []} size={24} max={3} />
+                <span className="hidden w-16 shrink-0 text-right text-2xs text-fg-subtle sm:block">{timeAgo(p.updatedAt || p.updated_at)}</span>
               </button>
             ))}
           </CardContent>

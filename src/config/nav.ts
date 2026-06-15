@@ -2,6 +2,7 @@ import {
   LayoutDashboard,
   FolderKanban,
   Workflow,
+  Box,
   Code2,
   Activity,
   Sparkles,
@@ -45,6 +46,13 @@ export const NAV_MAIN: NavItem[] = [
     path: "/app/designer",
     icon: Workflow,
     description: "Infinite canvas — drag, connect & edit components",
+  },
+  {
+    label: "3D View",
+    short: "3D",
+    path: "/app/view3d",
+    icon: Box,
+    description: "3D device geometry, material layers & mesh preview",
   },
   {
     label: "Code Studio",

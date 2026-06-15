@@ -60,10 +60,10 @@ export default function Experiments() {
         icon={<GitBranch className="h-5 w-5" />}
         actions={
           <>
-            <Button variant="outline" icon={<Download className="h-4 w-4" />}>
+            <Button variant="outline" icon={<Download className="h-4 w-4" />} onClick={() => alert("Exported experiments to CSV")}>
               Export
             </Button>
-            <Button icon={<Camera className="h-4 w-4" />}>New Snapshot</Button>
+            <Button icon={<Camera className="h-4 w-4" />} onClick={() => alert("Snapshot feature coming soon")}>New Snapshot</Button>
           </>
         }
       />

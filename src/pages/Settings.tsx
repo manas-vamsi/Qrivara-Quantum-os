@@ -183,7 +183,7 @@ export default function Settings() {
                     </h3>
                     <p className="text-sm text-fg-subtle">{draft.role}</p>
                   </div>
-                  <Button variant="outline" size="sm" className="ml-auto">
+                  <Button variant="outline" size="sm" className="ml-auto" onClick={() => alert("Avatar upload coming soon")}>
                     Change avatar
                   </Button>
                 </div>
@@ -265,6 +265,7 @@ export default function Settings() {
                     <Button
                       variant={s.connected ? "ghost" : "outline"}
                       size="sm"
+                      onClick={() => alert(`Integration settings for ${s.name}`)}
                     >
                       {s.connected ? "Manage" : "Connect"}
                     </Button>
@@ -316,7 +317,7 @@ export default function Settings() {
                       </p>
                     </div>
                   </div>
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={() => alert("2FA settings coming soon")}>
                     Manage
                   </Button>
                 </div>

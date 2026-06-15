@@ -18,6 +18,8 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Field, Input, Textarea, Select } from "@/components/ui/Form";
 import { useAppStore } from "@/store/useAppStore";
+import { useDataStore } from "@/store/useDataStore";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const DOMAINS = [
@@ -36,6 +38,10 @@ export function NewDesignModal() {
   const [step, setStep] = useState<"domain" | "details">("domain");
   const [domain, setDomain] = useState("superconducting");
   const [name, setName] = useState("Untitled Design");
+  const [description, setDescription] = useState("");
+  const [qubits, setQubits] = useState(4);
+  const [creating, setCreating] = useState(false);
+  const fetchProjects = useDataStore((s) => s.fetchProjects);
 
   const close = () => {
     setNewDesignOpen(false);
@@ -43,9 +49,27 @@ export function NewDesignModal() {
     setTimeout(() => setStep("domain"), 200);
   };
 
-  const create = () => {
+  const create = async () => {
+    setCreating(true);
+    let designId = null;
+    try {
+      // Create a real project (backend auto-creates a starter design sized to qubits).
+      const p = await api.createProject({ name, description, domain, qubits, tags: [] });
+      const designs = await api.getProjectDesigns(p.id);
+      if (designs && designs.length > 0) {
+        designId = designs[0].id;
+      }
+      await fetchProjects(); // refresh so it appears in Projects / 3D / Results selectors
+    } catch (err) {
+      console.error("Failed to create project:", err);
+    }
+    setCreating(false);
     close();
-    navigate("/app/designer");
+    if (designId) {
+      navigate(`/app/designer?id=${designId}`);
+    } else {
+      navigate("/app/designer?new=1"); // fallback
+    }
   };
 
   return (
@@ -75,7 +99,7 @@ export function NewDesignModal() {
             <Button variant="ghost" icon={<ArrowLeft className="h-4 w-4" />} onClick={() => setStep("domain")}>
               Back
             </Button>
-            <Button icon={<Sparkles className="h-4 w-4" />} onClick={create}>
+            <Button icon={<Sparkles className="h-4 w-4" />} onClick={create} loading={creating}>
               Create design
             </Button>
           </>
@@ -131,16 +155,17 @@ export function NewDesignModal() {
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Falcon-17 Processor" />
           </Field>
           <Field label="Description">
-            <Textarea rows={2} placeholder="17-qubit heavy-hex lattice…" />
+            <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="17-qubit heavy-hex lattice…" />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Start from">
-              <Select defaultValue="blank">
-                <option value="blank">Blank canvas</option>
-                <option value="2q">2-qubit test chip</option>
-                <option value="hexlattice">Heavy-hex lattice</option>
-                <option value="readout">Multiplexed readout array</option>
-              </Select>
+            <Field label="Qubits" hint="A starter layout is generated at this size">
+              <Input
+                type="number"
+                min={1}
+                max={64}
+                value={qubits}
+                onChange={(e) => setQubits(Math.max(1, Number(e.target.value) || 1))}
+              />
             </Field>
             <Field label="Substrate">
               <Select defaultValue="sapphire">

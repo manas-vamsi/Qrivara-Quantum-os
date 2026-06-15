@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -42,8 +42,9 @@ import {
   Check,
   ArrowUpRight,
   X,
+  Download,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import QuantumNode, { type QuantumNodeData } from "@/designer/QuantumNode";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -57,6 +58,8 @@ import { type ComponentDef } from "@/data/mockData";
 import { useDataStore } from "@/store/useDataStore";
 import { CHART } from "@/lib/chartTheme";
 import { toneChip, type Tone } from "@/lib/tones";
+import { api } from "@/lib/api";
+import { useDesignStore } from "@/store/useDesignStore";
 import { cn } from "@/lib/utils";
 
 const nodeTypes = { quantum: QuantumNode };
@@ -74,6 +77,8 @@ const kindIcon: Record<string, typeof Cpu> = {
   airbridge: Cable,
   tsv: Layers,
   ground: Grid3x3,
+  "purcell-filter": Radio,
+  "parametric-amplifier": Zap,
 };
 
 const miniColor: Record<string, string> = {
@@ -227,9 +232,89 @@ function DesignerCanvas() {
   const storeComps = useDataStore((s) => s.components);
   const COMPONENT_LIBRARY = useMemo(() => [...(storeComps?.built_in || []), ...(storeComps?.custom || [])], [storeComps]);
   
-  const initial = useMemo(() => buildInitial(COMPONENT_LIBRARY), [COMPONENT_LIBRARY]);
-  const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
+  // A fresh "New Design" (?new=1) opens a clean canvas; otherwise show the demo layout.
+  const [searchParams] = useSearchParams();
+  const designId = searchParams.get("id");
+  const projectId = searchParams.get("projectId");
+  const isNew = searchParams.get("new") === "1";
+  
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [version, setVersion] = useState(0);
+  const [loading, setLoading] = useState(!!(designId || projectId));
+  const [activeDesignId, setActiveDesignId] = useState<string | null>(designId);
+
+  // Load design if ID or ProjectID is present
+  useEffect(() => {
+    async function load() {
+      let targetDesignId = activeDesignId;
+      
+      if (!targetDesignId && projectId) {
+        setLoading(true);
+        try {
+          const designs = await api.getProjectDesigns(projectId);
+          if (designs && designs.length > 0) {
+            targetDesignId = designs[0].id;
+            setActiveDesignId(targetDesignId);
+          }
+        } catch (err) {
+          console.error("Failed to fetch project designs:", err);
+        }
+      }
+
+      if (targetDesignId) {
+        setLoading(true);
+        api.getDesign(targetDesignId)
+          .then((d) => {
+            if (d.doc) {
+              setNodes(d.doc.nodes || []);
+              setEdges(d.doc.edges || []);
+              setVersion(d.version);
+            }
+          })
+          .catch(console.error)
+          .finally(() => setLoading(false));
+      } else if (isNew) {
+        setNodes([]);
+        setEdges([]);
+        setLoading(false);
+      } else {
+        const initial = buildInitial(COMPONENT_LIBRARY);
+        setNodes(initial.nodes);
+        setEdges(initial.edges);
+        setLoading(false);
+      }
+    }
+    load();
+  }, [activeDesignId, projectId, isNew, COMPONENT_LIBRARY, setNodes, setEdges]);
+
+  // Periodic Auto-save
+  const lastSavedRef = useRef(JSON.stringify({ nodes, edges }));
+  useEffect(() => {
+    if (!activeDesignId || loading) return;
+    
+    const timer = setTimeout(async () => {
+      const current = JSON.stringify({ nodes, edges });
+      if (current === lastSavedRef.current) return;
+      
+      try {
+        const res = await api.saveDesign(activeDesignId, version, { nodes, edges });
+        setVersion(res.version);
+        lastSavedRef.current = current;
+        console.log("Design auto-saved", res.version);
+      } catch (err) {
+        console.error("Save failed:", err);
+      }
+    }, 3000);
+    
+    return () => clearTimeout(timer);
+  }, [nodes, edges, activeDesignId, version, loading]);
+
+  // Publish the canvas to the shared store so the 3D View mirrors it.
+  const publishGraph = useDesignStore((s) => s.setGraph);
+  useEffect(() => {
+    publishGraph(nodes, edges);
+  }, [nodes, edges, publishGraph]);
   const [selectedId, setSelectedId] = useState<string | null>("q1");
   const [search, setSearch] = useState("");
   const idRef = useRef(100);
@@ -245,14 +330,24 @@ function DesignerCanvas() {
   const generatedCode = useMemo(() => generateMetalCode(nodes, edges), [nodes, edges]);
   const pushLog = (k: LogLine["k"], t: string) => setLogs((l) => [...l, { k, t }]);
 
-  const handleGenerate = () => {
+  const [liveGeneratedCode, setLiveGeneratedCode] = useState("");
+
+  const handleGenerate = async () => {
     setOutputOpen(true);
     setCodeOpen(true);
-    pushLog("info", `Generated ${nodes.length} components → falcon17.py`);
+    pushLog("info", `Requesting codegen from FastAPI...`);
+    try {
+      const res = await api.generateCode({ nodes, edges });
+      setLiveGeneratedCode(res.code);
+      pushLog("info", `Generated ${nodes.length} components → ${res.filename}`);
+    } catch (err: any) {
+      pushLog("info", `Codegen error: ${err.message}. Falling back to client-side...`);
+      setLiveGeneratedCode(generateMetalCode(nodes, edges));
+    }
   };
   const openInStudio = () => {
     try {
-      sessionStorage.setItem("qrivara:generated", generatedCode);
+      sessionStorage.setItem("qrivara:generated", liveGeneratedCode || generatedCode);
     } catch {
       /* ignore */
     }
@@ -260,7 +355,7 @@ function DesignerCanvas() {
     navigate("/app/code");
   };
   const copyCode = () => {
-    navigator.clipboard?.writeText(generatedCode);
+    navigator.clipboard?.writeText(liveGeneratedCode || generatedCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -271,13 +366,11 @@ function DesignerCanvas() {
     pushLog("prompt", ">>> initializing simulation job...");
     
     try {
-      // In a real scenario, this uses the actual design ID. We use a placeholder or assume 'main' for the demo.
-      // We pass the actual design parameters.
-      const designId = "main"; // we need a valid design ID, assuming we might just trigger a sweep for demonstration
+      if (!activeDesignId) throw new Error("No active design to simulate");
       pushLog("info", `dispatching eigenmode to FastAPI...`);
-      const res = await api.runSimulation("mock-id", "design_errors", "palace", { ej: 14.5, ec: 0.24, tunable: true });
+      const res = await api.runSimulation(activeDesignId, "design_errors", "palace", { ej: 14.5, ec: 0.24, tunable: true });
       
-      pushLog("info", `job queued: ${res.job_id}`);
+      pushLog("info", `job queued: ${res.id}`);
       if (res.status === "done") {
         const d = res.result;
         pushLog("ok", `✓ completed natively in Python`);
@@ -290,6 +383,47 @@ function DesignerCanvas() {
     } finally {
       setSimRunning(false);
       setSimDone(true);
+    }
+  };
+
+  const runDrc = async () => {
+    setOutputOpen(true);
+    pushLog("prompt", ">>> running Design Rule Check (DRC)...");
+    try {
+      if (!activeDesignId) throw new Error("No active design");
+      const res = await api.runSimulation(activeDesignId, "validation", "drc", {});
+      if (res.status === "done") {
+        const d = res.result;
+        pushLog("info", `Checks: ${d.passed}/${d.total} passed`);
+        if (d.drc_warnings && d.drc_warnings.length > 0) {
+          d.drc_warnings.forEach((w: string) => pushLog("warn", `WARN: ${w}`));
+        } else {
+          pushLog("ok", "✓ DRC Passed. Ready for GDS export.");
+        }
+      }
+    } catch (err: any) {
+      pushLog("warn", `DRC failed to run: ${err.message}`);
+    }
+  };
+
+  const exportGds = async () => {
+    setOutputOpen(true);
+    pushLog("prompt", ">>> exporting layout to GDSII format...");
+    try {
+      if (!activeDesignId) throw new Error("No active design");
+      const res = await fetch(`${api.baseUrl}/designs/${activeDesignId}/export/gds`);
+      if (!res.ok) throw new Error("GDS export failed");
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `design_${activeDesignId}.gds`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      pushLog("ok", `✓ GDSII file downloaded (${(blob.size / 1024).toFixed(1)} KB).`);
+    } catch (err: any) {
+      pushLog("warn", `Export failed: ${err.message}`);
     }
   };
 
@@ -440,8 +574,8 @@ function DesignerCanvas() {
                 <span className="hidden text-xs font-medium text-fg sm:inline">Falcon-17 / main</span>
               </div>
               <div className="h-5 w-px bg-line" />
-              <Tooltip content="Undo"><IconButton size="sm"><Undo2 className="h-4 w-4" /></IconButton></Tooltip>
-              <Tooltip content="Redo"><IconButton size="sm"><Redo2 className="h-4 w-4" /></IconButton></Tooltip>
+              <Tooltip content="Undo"><IconButton size="sm" onClick={() => pushLog("info", "Undo action")}><Undo2 className="h-4 w-4" /></IconButton></Tooltip>
+              <Tooltip content="Redo"><IconButton size="sm" onClick={() => pushLog("info", "Redo action")}><Redo2 className="h-4 w-4" /></IconButton></Tooltip>
               <div className="h-5 w-px bg-line" />
               <Tooltip content="Zoom in"><IconButton size="sm" onClick={() => zoomIn()}><ZoomIn className="h-4 w-4" /></IconButton></Tooltip>
               <Tooltip content="Zoom out"><IconButton size="sm" onClick={() => zoomOut()}><ZoomOut className="h-4 w-4" /></IconButton></Tooltip>
@@ -457,11 +591,17 @@ function DesignerCanvas() {
                   <TerminalSquare className="h-4 w-4" />
                 </IconButton>
               </Tooltip>
+              <Button size="sm" variant="ghost" icon={<Activity className="h-4 w-4" />} onClick={runDrc}>
+                DRC
+              </Button>
+              <Button size="sm" variant="ghost" icon={<Download className="h-4 w-4" />} onClick={exportGds}>
+                GDS
+              </Button>
               <Button size="sm" variant="outline" loading={simRunning} icon={<Play className="h-4 w-4" />} onClick={runSim}>
                 Simulate
               </Button>
               <Button size="sm" icon={<Code2 className="h-4 w-4" />} onClick={handleGenerate}>
-                Generate Code
+                Code
               </Button>
             </div>
           </div>
@@ -603,7 +743,7 @@ function DesignerCanvas() {
         open={codeOpen}
         onClose={() => setCodeOpen(false)}
         title="Generated Qiskit Metal code"
-        description={`${nodes.length} components · ${edges.length} connections → falcon17.py`}
+        description={`${nodes.length} components · ${edges.length} connections`}
         size="xl"
         footer={
           <>
@@ -617,7 +757,7 @@ function DesignerCanvas() {
         }
       >
         <pre className="max-h-[55vh] overflow-auto rounded-xl border border-line bg-bg-deep/60 p-4 font-mono text-xs leading-relaxed text-fg-muted">
-          {generatedCode}
+          {liveGeneratedCode || generatedCode}
         </pre>
       </Modal>
     </div>

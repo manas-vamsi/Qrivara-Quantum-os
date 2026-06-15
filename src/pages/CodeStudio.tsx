@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import Editor from "@monaco-editor/react";
 import {
   Play,
@@ -13,11 +14,14 @@ import {
   Trash2,
   TerminalSquare,
   MoreHorizontal,
+  Box,
 } from "lucide-react";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Switch } from "@/components/ui/Form";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
+import { useDesignStore } from "@/store/useDesignStore";
 
 const FILES = ["falcon17.py", "couplers.py", "readout.py"];
 
@@ -125,6 +129,7 @@ const TREE = [
 ];
 
 export default function CodeStudio() {
+  const navigate = useNavigate();
   const [active, setActive] = useState("falcon17.py");
   // Prefer code generated from the Visual Designer (if the user came via "Open in Code Studio")
   const [code] = useState(() => {
@@ -136,19 +141,28 @@ export default function CodeStudio() {
   });
   const [liveSync, setLiveSync] = useState(true);
   const [running, setRunning] = useState(false);
+  const [runDone, setRunDone] = useState(false);
   const [log, setLog] = useState(BASE_LOG);
+  const setGraph = useDesignStore((s) => s.setGraph);
 
-  const run = () => {
+  const run = async () => {
     setRunning(true);
-    setLog((l) => [...l, { k: "prompt", t: ">>> re-running falcon17.py" }]);
-    setTimeout(() => {
-      setLog((l) => [
-        ...l,
-        { k: "info", t: "HFSS eigenmode: pass 8/12 → converged" },
-        { k: "ok", t: "✓ Synced 17 qubits to canvas · 0 errors" },
-      ]);
+    setRunDone(false);
+    setLog((l) => [...l, { k: "prompt", t: ">>> executing script on backend sandbox..." }]);
+    try {
+      const res = await api.executeCode(code);
+      if (res.logs) {
+        setLog((l) => [...l, ...res.logs]);
+      }
+      if (res.doc && liveSync) {
+        setGraph(res.doc.nodes, res.doc.edges);
+      }
+      setRunDone(true);
+    } catch (err: any) {
+      setLog((l) => [...l, { k: "warn", t: `Execution failed: ${err.message}` }]);
+    } finally {
       setRunning(false);
-    }, 1100);
+    }
   };
 
   const logColor: Record<LogKind, string> = {
@@ -188,6 +202,9 @@ export default function CodeStudio() {
             <span className="text-2xs text-fg-subtle">Live sync</span>
             <Switch checked={liveSync} onChange={setLiveSync} />
           </div>
+          <Button size="sm" variant="ghost" icon={<Box className="h-3.5 w-3.5" />} onClick={() => navigate("/app/view3d?source=live")}>
+            View in 3D
+          </Button>
           <Button size="sm" loading={running} icon={<Play className="h-3.5 w-3.5" />} onClick={run}>
             Run
           </Button>

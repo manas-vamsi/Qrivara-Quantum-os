@@ -16,6 +16,7 @@ import Landing from "@/pages/Landing";
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const Projects = lazy(() => import("@/pages/Projects"));
 const Designer = lazy(() => import("@/pages/Designer"));
+const View3D = lazy(() => import("@/pages/View3D"));
 const CodeStudio = lazy(() => import("@/pages/CodeStudio"));
 const Simulation = lazy(() => import("@/pages/Simulation"));
 const Optimization = lazy(() => import("@/pages/Optimization"));
@@ -53,6 +54,7 @@ const router = createBrowserRouter([
       { index: true, element: withSuspense(<Dashboard />) },
       { path: "projects", element: withSuspense(<Projects />) },
       { path: "designer", element: withSuspense(<Designer />) },
+      { path: "view3d", element: withSuspense(<View3D />) },
       { path: "code", element: withSuspense(<CodeStudio />) },
       { path: "simulation", element: withSuspense(<Simulation />) },
       { path: "optimization", element: withSuspense(<Optimization />) },
