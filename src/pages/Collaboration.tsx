@@ -176,7 +176,7 @@ export default function Collaboration() {
                           >
                             {c.resolved ? "Reopen" : "Resolve"}
                           </Button>
-                          <Button size="sm" variant="ghost" icon={<MessageSquare className="h-3.5 w-3.5" />}>
+                          <Button size="sm" variant="ghost" icon={<MessageSquare className="h-3.5 w-3.5" />} onClick={() => alert("Reply feature coming soon")}>
                             Reply
                           </Button>
                         </div>
@@ -194,7 +194,7 @@ export default function Collaboration() {
           <Card>
             <div className="flex items-center justify-between px-5 pt-5">
               <h3 className="font-display text-[0.95rem] font-semibold tracking-tight">Team</h3>
-              <Button variant="ghost" size="sm">Manage</Button>
+              <Button variant="ghost" size="sm" onClick={() => alert("Manage team coming soon")}>Manage</Button>
             </div>
             <CardContent className="space-y-1 pt-3">
               {TEAM.map((m) => (

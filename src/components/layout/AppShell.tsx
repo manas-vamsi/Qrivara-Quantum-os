@@ -18,6 +18,7 @@ export function AppShell() {
   // Designer & Code Studio want a full-bleed (non-scrolling) canvas.
   const fullBleed =
     location.pathname.startsWith("/app/designer") ||
+    location.pathname.startsWith("/app/view3d") ||
     location.pathname.startsWith("/app/code");
 
   return (

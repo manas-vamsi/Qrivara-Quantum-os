@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Sparkles, Play, Pause, RotateCcw, Target, Activity, ShieldAlert } from "lucide-react";
 import {
@@ -32,14 +32,8 @@ import { Progress } from "@/components/ui/Progress";
 import { Slider, SegmentedControl, Field } from "@/components/ui/Form";
 import { CHART, axisProps, ChartTooltip } from "@/lib/chartTheme";
 import { OPT_OBJECTIVES, OPT_PARAMS, OPT_HISTORY, PARETO, OPT_ERRORS } from "@/data/mockData";
-import {
-  sweepEjEc,
-  ecFromCapacitance,
-  ejFromIc,
-  f01 as calcF01,
-  designForTarget,
-} from "@/lib/quantum";
-import { cn, seeded } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
 
 const dirTone = { min: "cyan", max: "success", target: "primary" } as const;
 
@@ -58,12 +52,18 @@ function closeness(o: (typeof OPT_OBJECTIVES)[number]) {
 }
 
 export default function Optimization() {
-  const [running, setRunning] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [runId, setRunId] = useState<string | null>(null);
   const [params, setParams] = useState(
     Object.fromEntries(OPT_PARAMS.map((p) => [p.id, p.value])),
   );
 
-  const sweep = useMemo(() => sweepEjEc({ tunable: true }), []);
+  // EJ-EC optimal region — live backend
+  const [sweep, setSweep] = useState<any[]>([]);
+  useEffect(() => {
+    api.getEjEcRegion().then(setSweep).catch(console.error);
+  }, []);
+
   const optRegion = sweep
     .filter((p) => p.score >= 78)
     .map((p) => ({ ratio: p.ratio, ec: Math.round(p.ec * 1000), score: p.score }));
@@ -72,42 +72,68 @@ export default function Optimization() {
     .map((p) => ({ ratio: p.ratio, ec: Math.round(p.ec * 1000) }));
   const totalErr = OPT_ERRORS.reduce((s, e) => s + e.value, 0);
 
-  // Yield / Monte-Carlo process-variation analysis
+  // Yield / Monte-Carlo process-variation analysis — live backend (10k samples).
   const [sigma, setSigma] = useState(2);
-  const yieldData = useMemo(() => {
-    const r = seeded(7919);
-    const gauss = () => {
-      let u = 0, v = 0;
-      while (u === 0) u = r();
-      while (v === 0) v = r();
-      return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  const [yieldData, setYieldData] = useState<{
+    hist: { f: number; count: number; inSpec: boolean }[];
+    yieldPct: number;
+    lo: number;
+    hi: number;
+    samples: number;
+    sensitivity: Record<string, number> | null;
+  }>({ hist: [], yieldPct: 0, lo: 5.05, hi: 5.21, samples: 0, sensitivity: null });
+  const [yieldLoading, setYieldLoading] = useState(false);
+  const [yieldError, setYieldError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      setYieldLoading(true);
+      setYieldError(false);
+      try {
+        const r = await api.runYield({
+          parameters: [
+            { name: "c_sigma_fF", mean: 80, sigma: (80 * sigma) / 100 },
+            { name: "ic_nA", mean: 30, sigma: (30 * sigma) / 100 },
+          ],
+          samples: 10000,
+        });
+        if (cancelled) return;
+        const [lo, hi] = r.spec as [number, number];
+        setYieldData({
+          hist: (r.histogram ?? []).map((b: { f: number; count: number }) => ({
+            ...b,
+            inSpec: b.f >= lo && b.f <= hi,
+          })),
+          yieldPct: r.yield_pct,
+          lo,
+          hi,
+          samples: r.samples,
+          sensitivity: r.sensitivity ?? null,
+        });
+      } catch {
+        if (!cancelled) setYieldError(true);
+      } finally {
+        if (!cancelled) setYieldLoading(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
     };
-    const s = sigma / 100;
-    const fs: number[] = [];
-    for (let i = 0; i < 3000; i++) {
-      const c = 80 * (1 + s * gauss());
-      const ic = 30 * (1 + s * gauss());
-      fs.push(calcF01(ejFromIc(ic), ecFromCapacitance(c)));
-    }
-    const lo = 5.05, hi = 5.21;
-    const inSpec = fs.filter((f) => f >= lo && f <= hi).length;
-    const bins = 28, fMin = 4.75, fMax = 5.55, w = (fMax - fMin) / bins;
-    const hist = Array.from({ length: bins }, (_, i) => {
-      const f = fMin + (i + 0.5) * w;
-      return { f: Number(f.toFixed(3)), count: 0, inSpec: f >= lo && f <= hi };
-    });
-    fs.forEach((f) => {
-      const idx = Math.floor((f - fMin) / w);
-      if (idx >= 0 && idx < bins) hist[idx].count++;
-    });
-    return { hist, yieldPct: (inSpec / fs.length) * 100, lo, hi };
   }, [sigma]);
 
-  // Inverse design
+  // Inverse design — live backend
   const [targetF, setTargetF] = useState(5.2);
   const [targetAnh, setTargetAnh] = useState(-300);
   const [method, setMethod] = useState<"bayesian" | "genetic" | "gradient">("bayesian");
-  const design = designForTarget(targetF, targetAnh);
+  const [invResult, setInvResult] = useState({ cSigma: 80, ic: 30, ej: 14.5, ec: 0.24, ratio: 60 });
+
+  useEffect(() => {
+    api.runInverseDesign(targetF, targetAnh)
+      .then(setInvResult)
+      .catch(console.error);
+  }, [targetF, targetAnh]);
 
   const radarData = OPT_OBJECTIVES.map((o) => ({
     objective: o.name.split(" ")[0],
@@ -116,6 +142,21 @@ export default function Optimization() {
 
   const optimal = PARETO.filter((p) => !p.dominated);
   const dominated = PARETO.filter((p) => p.dominated);
+
+  const toggleRun = async () => {
+    if (!running) {
+      setRunning(true);
+      try {
+        const res = await api.startOptimization({ ...params, method });
+        setRunId(res.id);
+      } catch (err) {
+        console.error(err);
+        setRunning(false);
+      }
+    } else {
+      setRunning(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -130,11 +171,11 @@ export default function Optimization() {
         icon={<Sparkles className="h-5 w-5" />}
         actions={
           <>
-            <Button variant="outline" icon={<RotateCcw className="h-4 w-4" />}>
+            <Button variant="outline" icon={<RotateCcw className="h-4 w-4" />} onClick={() => setRunning(false)}>
               Reset
             </Button>
             <Button
-              onClick={() => setRunning((r) => !r)}
+              onClick={toggleRun}
               variant={running ? "secondary" : "primary"}
               icon={running ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             >
@@ -156,13 +197,13 @@ export default function Optimization() {
             </span>
           } />
           <Divider />
-          <Stat label="Iteration" value={<span className="font-mono">60 / 200</span>} />
+          <Stat label="Iteration" value={<span className="font-mono">{running ? "60 / 200" : "0 / 200"}</span>} />
           <Divider />
-          <Stat label="Elapsed" value={<span className="font-mono">4m 12s</span>} />
+          <Stat label="Elapsed" value={<span className="font-mono">{running ? "4m 12s" : "0m 0s"}</span>} />
           <Divider />
-          <Stat label="Best score" value={<span className="font-mono text-success">0.0127</span>} />
+          <Stat label="Best score" value={<span className="font-mono text-success">{running ? "0.0127" : "—"}</span>} />
           <div className="ml-auto hidden w-48 sm:block">
-            <Progress value={30} tone="violet" glow />
+            <Progress value={running ? 30 : 0} tone="violet" glow />
           </div>
         </div>
       </Card>
@@ -174,7 +215,7 @@ export default function Optimization() {
             <Header title="Convergence" subtitle="Loss & best score over iterations" />
             <CardContent className="pt-4">
               <ResponsiveContainer width="100%" height={280}>
-                <AreaChart data={OPT_HISTORY} margin={{ top: 10, right: 10, left: -14, bottom: 0 }}>
+                <AreaChart data={running ? OPT_HISTORY : []} margin={{ top: 10, right: 10, left: -14, bottom: 0 }}>
                   <defs>
                     <linearGradient id="best-fill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={CHART.primary} stopOpacity={0.32} />
@@ -359,11 +400,15 @@ export default function Optimization() {
               <h3 className="font-display text-[0.95rem] font-semibold tracking-tight">
                 Yield — Monte-Carlo
               </h3>
-              <p className="text-sm text-fg-subtle">3,000 process-variation samples</p>
+              <p className="text-sm text-fg-subtle">
+                {yieldError
+                  ? "backend offline — start the API server"
+                  : `${(yieldData.samples || 10000).toLocaleString()} process-variation samples · live`}
+              </p>
             </div>
             <div className="text-right">
               <div className="font-display text-2xl font-semibold tabular-nums text-success">
-                {yieldData.yieldPct.toFixed(1)}%
+                {yieldLoading ? "…" : `${yieldData.yieldPct.toFixed(1)}%`}
               </div>
               <p className="text-2xs text-fg-subtle">in-spec yield</p>
             </div>
@@ -391,8 +436,21 @@ export default function Optimization() {
               </div>
               <Slider value={sigma} min={0.5} max={6} step={0.1} onChange={setSigma} />
               <p className="mt-2 text-2xs text-fg-subtle">
-                f₀₁ spec window 5.05–5.21 GHz · junction & capacitance vary by ±{sigma.toFixed(1)}%.
+                f₀₁ spec window {yieldData.lo.toFixed(2)}–{yieldData.hi.toFixed(2)} GHz · junction &amp; capacitance vary by ±{sigma.toFixed(1)}%.
               </p>
+              {yieldData.sensitivity && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {Object.entries(yieldData.sensitivity).map(([k, v]) => (
+                    <span
+                      key={k}
+                      className="rounded-md border border-line bg-surface-2 px-2 py-1 text-2xs text-fg-muted"
+                    >
+                      ∂f/∂<span className="font-mono text-fg">{k.replace("_fF", "").replace("_nA", "")}</span>{" "}
+                      <span className="font-mono text-primary">{v.toFixed(0)}%</span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -432,12 +490,12 @@ export default function Optimization() {
               <Slider value={targetAnh} min={-360} max={-150} step={1} onChange={setTargetAnh} />
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <Metric size="sm" label="Cσ" value={design.cSigma.toFixed(1)} unit="fF" tone="cyan" />
-              <Metric size="sm" label="Ic" value={design.ic.toFixed(1)} unit="nA" tone="warning" />
-              <Metric size="sm" label="Lⱼ" value={(163.4 / design.ej).toFixed(1)} unit="nH" tone="primary" />
-              <Metric size="sm" label="EJ" value={design.ej.toFixed(2)} unit="GHz" tone="primary" />
-              <Metric size="sm" label="EC" value={(design.ec * 1000).toFixed(0)} unit="MHz" tone="cyan" />
-              <Metric size="sm" label="EJ/EC" value={design.ratio.toFixed(0)} tone="success" />
+              <Metric size="sm" label="Cσ" value={invResult.cSigma.toFixed(1)} unit="fF" tone="cyan" />
+              <Metric size="sm" label="Ic" value={invResult.ic.toFixed(1)} unit="nA" tone="warning" />
+              <Metric size="sm" label="Lⱼ" value={(163.4 / invResult.ej).toFixed(1)} unit="nH" tone="primary" />
+              <Metric size="sm" label="EJ" value={invResult.ej.toFixed(2)} unit="GHz" tone="primary" />
+              <Metric size="sm" label="EC" value={(invResult.ec * 1000).toFixed(0)} unit="MHz" tone="cyan" />
+              <Metric size="sm" label="EJ/EC" value={invResult.ratio.toFixed(0)} tone="success" />
             </div>
             <div className="flex items-center justify-between rounded-xl border border-line bg-surface-2 px-3 py-2.5">
               <span className="text-2xs text-fg-subtle">
@@ -496,4 +554,3 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
 function Divider() {
   return <div className="hidden h-8 w-px bg-line sm:block" />;
 }
-

@@ -243,15 +243,16 @@ export default function Dashboard() {
               <h3 className="font-display text-[0.95rem] font-semibold tracking-tight">
                 Projects
               </h3>
-              <Button variant="ghost" size="sm" iconRight={<ArrowRight className="h-3.5 w-3.5" />}>
+              <Button variant="ghost" size="sm" iconRight={<ArrowRight className="h-3.5 w-3.5" />} onClick={() => navigate("/app/projects")}>
                 View all
               </Button>
             </div>
             <CardContent className="space-y-1 pt-3">
               {PROJECTS.map((p) => (
-                <div
+                <button
                   key={p.id}
-                  className="group flex items-center gap-4 rounded-xl px-3 py-3 transition-colors hover:bg-surface-2"
+                  onClick={() => navigate(`/app/designer?projectId=${p.id}`)}
+                  className="group flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-surface-2"
                 >
                   <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-line bg-surface-2 font-mono text-xs font-semibold text-primary">
                     {p.qubits}Q
@@ -284,7 +285,7 @@ export default function Dashboard() {
                     />
                   </div>
                   <AvatarGroup names={p.collaborators} size={26} max={3} />
-                </div>
+                </button>
               ))}
             </CardContent>
           </Card>

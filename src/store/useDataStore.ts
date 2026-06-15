@@ -20,7 +20,15 @@ export const useDataStore = create<DataState>((set) => ({
     set({ loading: true, error: null });
     try {
       const data = await api.getProjects();
-      set({ projects: data, loading: false });
+      // Normalize snake_case backend fields to the camelCase the UI expects.
+      const projects = (Array.isArray(data) ? data : []).map((p: any) => ({
+        ...p,
+        updatedAt: p.updatedAt ?? p.updated_at ?? null,
+        createdAt: p.createdAt ?? p.created_at ?? null,
+        collaborators: p.collaborators ?? [],
+        tags: p.tags ?? [],
+      }));
+      set({ projects, loading: false });
     } catch (err: any) {
       set({ error: err.message, loading: false });
     }

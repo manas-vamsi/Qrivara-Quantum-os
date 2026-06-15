@@ -17,7 +17,9 @@ export type ComponentKind =
   | "squid"
   | "airbridge"
   | "tsv"
-  | "ground";
+  | "ground"
+  | "parametric-amplifier"
+  | "purcell-filter";
 
 export interface ComponentDef {
   id: string;
@@ -49,6 +51,8 @@ export const COMPONENT_LIBRARY: ComponentDef[] = [
       pad_gap_um: 30,
       junction_width_nm: 200,
       junction_length_nm: 200,
+      fillet_radius_um: 10,
+      halo_gap_um: 40,
       target_freq_GHz: 5.2,
       anharmonicity_MHz: -310,
       material: "Aluminum",
@@ -67,9 +71,24 @@ export const COMPONENT_LIBRARY: ComponentDef[] = [
       arm_width_um: 24,
       cross_width_um: 24,
       gap_um: 30,
+      fillet_radius_um: 5,
       target_freq_GHz: 5.0,
       material: "Aluminum",
       layer: 1,
+    },
+    color: "primary",
+  },
+  {
+    id: "concentric-transmon",
+    kind: "transmon",
+    name: "Concentric Transmon",
+    category: "Qubits",
+    description: "Circular center pad with outer ring, low footprint",
+    defaults: {
+      inner_radius_um: 120,
+      outer_radius_um: 160,
+      gap_um: 20,
+      target_freq_GHz: 4.8,
     },
     color: "primary",
   },
@@ -83,6 +102,7 @@ export const COMPONENT_LIBRARY: ComponentDef[] = [
       inductor_count: 100,
       loop_area_um2: 30,
       junction_area_um2: 0.02,
+      kinetic_inductance_pH: 15,
       target_freq_GHz: 0.5,
     },
     color: "violet",
@@ -99,6 +119,7 @@ export const COMPONENT_LIBRARY: ComponentDef[] = [
       length_um: 4200,
       width_um: 10,
       gap_um: 6,
+      fillet_radius_um: 90,
       impedance_ohm: 50,
       target_freq_GHz: 6.5,
     },
@@ -110,7 +131,16 @@ export const COMPONENT_LIBRARY: ComponentDef[] = [
     name: "Readout Resonator",
     category: "Resonators",
     description: "Dispersive readout resonator",
-    defaults: { length_um: 4200, coupling_MHz: 1.2, frequency_GHz: 7.1 },
+    defaults: { length_um: 4200, fillet_radius_um: 90, coupling_MHz: 1.2, frequency_GHz: 7.1 },
+    color: "cyan",
+  },
+  {
+    id: "purcell-filter",
+    kind: "purcell-filter",
+    name: "Purcell Filter",
+    category: "Resonators",
+    description: "Bandpass filter to prevent qubit decay via readout",
+    defaults: { bandwidth_MHz: 50, frequency_GHz: 7.1, length_um: 2000 },
     color: "cyan",
   },
 
@@ -131,6 +161,15 @@ export const COMPONENT_LIBRARY: ComponentDef[] = [
     category: "Couplers",
     description: "Mutual-inductance coupling element",
     defaults: { mutual_inductance_pH: 2.1, loop_area_um2: 40, distance_um: 10 },
+    color: "violet",
+  },
+  {
+    id: "snail-coupler",
+    kind: "squid",
+    name: "SNAIL Coupler",
+    category: "Couplers",
+    description: "Asymmetric SQUID for 3-wave mixing and 0-ZZ crosstalk",
+    defaults: { loop_area_um2: 25, asymmetry_ratio: 0.1, target_g_MHz: 100 },
     color: "violet",
   },
 
@@ -161,7 +200,7 @@ export const COMPONENT_LIBRARY: ComponentDef[] = [
     name: "Feedline",
     category: "Readout",
     description: "Shared readout transmission line",
-    defaults: { length_um: 2800, width_um: 10, gap_um: 6, impedance_ohm: 50 },
+    defaults: { length_um: 2800, width_um: 10, gap_um: 6, fillet_radius_um: 90, impedance_ohm: 50 },
     color: "success",
   },
   {
@@ -171,6 +210,15 @@ export const COMPONENT_LIBRARY: ComponentDef[] = [
     category: "Readout",
     description: "Wirebond IO port for readout",
     defaults: { freq_range_GHz: "6–8", power_dBm: -40 },
+    color: "success",
+  },
+  {
+    id: "jpa",
+    kind: "parametric-amplifier",
+    name: "Parametric Amp (JPA)",
+    category: "Readout",
+    description: "On-chip Josephson Parametric Amplifier for signal boost",
+    defaults: { gain_dB: 20, bandwidth_MHz: 20, center_freq_GHz: 7.1 },
     color: "success",
   },
 
@@ -202,6 +250,15 @@ export const COMPONENT_LIBRARY: ComponentDef[] = [
     defaults: { length_um: 30, width_um: 8, height_um: 3 },
     color: "success",
   },
+  {
+    id: "tsv",
+    kind: "tsv",
+    name: "Through-Silicon Via",
+    category: "Chip",
+    description: "Vertical interconnect for 3D routing",
+    defaults: { diameter_um: 20, depth_um: 150, material: "Copper" },
+    color: "success",
+  },
 ];
 
 /* --------------------------------- Projects ------------------------------- */
@@ -218,7 +275,7 @@ export interface Project {
 }
 
 /** SSOT for project-status → tone (used by Dashboard & Collaboration). */
-export const PROJECT_STATUS_TONE: Record<Project["status"], "primary" | "cyan" | "warning" | "neutral"> = {
+export const PROJECT_STATUS_TONE: Record<string, "primary" | "cyan" | "warning" | "neutral"> = {
   active: "primary",
   simulating: "cyan",
   review: "warning",
@@ -320,7 +377,7 @@ export const ACTIVITY: ActivityItem[] = [
 ];
 
 /* ---------------------------- Simulation runs ----------------------------- */
-export type SimType = "frequency" | "capacitance" | "coupling" | "sweep";
+export type SimType = "frequency" | "capacitance" | "coupling" | "sweep" | "epr" | "scattering" | "validation" | "zz_crosstalk" | "decoherence";
 export interface SimRun {
   id: string;
   name: string;

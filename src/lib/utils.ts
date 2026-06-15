@@ -28,8 +28,10 @@ export function formatFreq(hz: number) {
 }
 
 /** Relative time formatter, e.g. "3h ago". */
-export function timeAgo(date: Date | string) {
-  const d = typeof date === "string" ? new Date(date) : date;
+export function timeAgo(date?: Date | string | number | null) {
+  if (date === undefined || date === null || date === "") return "";
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return "";
   const seconds = Math.floor((Date.now() - d.getTime()) / 1000);
   const units: [number, string][] = [
     [60, "s"],

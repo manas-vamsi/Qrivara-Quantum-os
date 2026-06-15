@@ -1,18 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Layers,
   ShieldCheck,
   Check,
   X,
-  Thermometer,
-  Beaker,
-  CircuitBoard,
+  Activity,
 } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Badge, StatusDot } from "@/components/ui/Badge";
-import { Progress } from "@/components/ui/Progress";
+import { Badge } from "@/components/ui/Badge";
 import { Slider, SegmentedControl, Select, Field } from "@/components/ui/Form";
 import { lossBudget } from "@/lib/quantum";
 import {
@@ -24,14 +21,59 @@ import {
 import { cn, fmtUs } from "@/lib/utils";
 import { Metric } from "@/components/common/Metric";
 import { toneBg, type Tone } from "@/lib/tones";
+import { useDataStore } from "@/store/useDataStore";
+import { api } from "@/lib/api";
 
 const lossTone: Tone[] = ["primary", "cyan", "violet", "warning"];
+
+type FabResult = {
+  steps: { name: string; tolerance_nm: number; status: string }[];
+  frequency_drift_MHz: number;
+  coupling_drift_MHz: number;
+  yield_pct: number;
+  spec_window_MHz: number;
+};
 
 export default function Fabrication() {
   const [metal, setMetal] = useState("ta");
   const [substrate, setSubstrate] = useState("sapphire");
   const [parts, setParts] = useState(LOSS_INTERFACES.map((i) => i.p));
   const fRef = 5.0; // reference qubit frequency for the loss → T1 calc
+
+  // Live process / yield analysis (backend) — project-aware.
+  const projects = useDataStore((s) => s.projects);
+  const [projectId, setProjectId] = useState("");
+  const [fab, setFab] = useState<FabResult | null>(null);
+  const [fabLoading, setFabLoading] = useState(false);
+  const [fabError, setFabError] = useState(false);
+
+  // default to the first project once they load
+  useEffect(() => {
+    if (!projectId && projects.length) setProjectId(projects[0].id);
+  }, [projects, projectId]);
+
+  const runFab = async (pid: string) => {
+    if (!pid) return;
+    setFabLoading(true);
+    setFabError(false);
+    try {
+      const designs = await api.getProjectDesigns(pid);
+      const designId = designs?.[0]?.id;
+      if (!designId) throw new Error("no design");
+      const job = await api.runSimulation(designId, "fabrication", "analytic", {});
+      setFab((job?.result ?? job) as FabResult);
+    } catch {
+      setFabError(true);
+      setFab(null);
+    } finally {
+      setFabLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (projectId) runFab(projectId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   const sub = SUBSTRATES.find((s) => s.id === substrate)!;
   const metalDef = METALS.find((m) => m.id === metal)!;
@@ -51,10 +93,26 @@ export default function Fabrication() {
     <div className="space-y-6">
       <PageHeader
         title="Fabrication & Materials"
-        subtitle="Material stack, surface-participation loss budget and design-rule checks."
+        subtitle="Material stack, surface-participation loss budget, process tolerances and design-rule checks."
         icon={<Layers className="h-5 w-5" />}
         actions={
-          <Button icon={<ShieldCheck className="h-4 w-4" />}>Run DRC</Button>
+          <div className="flex items-center gap-2">
+            <div className="w-44">
+              <Select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+                {projects.length === 0 && <option value="">No projects</option>}
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </Select>
+            </div>
+            <Button
+              icon={<ShieldCheck className="h-4 w-4" />}
+              loading={fabLoading}
+              onClick={() => runFab(projectId)}
+            >
+              Run Analysis
+            </Button>
+          </div>
         }
       />
 
@@ -198,37 +256,80 @@ export default function Fabrication() {
             </CardContent>
           </Card>
 
+          {/* Live process tolerances + yield (backend) */}
           <Card>
-            <div className="px-5 pt-5">
-              <h3 className="font-display text-[0.95rem] font-semibold tracking-tight">
-                Process
-              </h3>
+            <div className="flex items-center justify-between px-5 pt-5">
+              <div>
+                <h3 className="font-display text-[0.95rem] font-semibold tracking-tight">
+                  Process & Yield
+                </h3>
+                <p className="text-sm text-fg-subtle">
+                  {fabError
+                    ? "backend offline — start the API server"
+                    : "Tolerance stack-up → frequency drift"}
+                </p>
+              </div>
+              {fab && !fabError && (
+                <Badge tone={fab.yield_pct >= 50 ? "success" : fab.yield_pct >= 20 ? "warning" : "error"} dot>
+                  {fab.yield_pct.toFixed(0)}% yield
+                </Badge>
+              )}
             </div>
             <CardContent className="space-y-3 pt-3 text-sm">
-              <ProcRow icon={<Beaker className="h-4 w-4 text-cyan" />} label="Junction lithography" value="Manhattan" />
-              <ProcRow icon={<Layers className="h-4 w-4 text-primary" />} label="Deposition" value="Double-angle e-beam" />
-              <ProcRow icon={<CircuitBoard className="h-4 w-4 text-violet" />} label="Integration" value="Flip-chip + TSV" />
-              <ProcRow icon={<Thermometer className="h-4 w-4 text-warning" />} label="Operating temp" value="15 mK" />
-              <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 p-3">
-                <StatusDot tone="success" pulse />
-                <span className="text-xs text-fg-muted">Process deck validated for {metalDef.name}</span>
-              </div>
+              {fabLoading && !fab && (
+                <p className="px-1 py-6 text-center text-sm text-fg-subtle">Running process analysis…</p>
+              )}
+              {fabError && !fab && (
+                <p className="rounded-xl border border-line bg-surface-2 p-3 text-2xs text-fg-subtle">
+                  Could not reach the analysis backend. Start it with{" "}
+                  <span className="font-mono text-fg">uvicorn app.main:app</span> and click Run Analysis.
+                </p>
+              )}
+              {fab && (
+                <>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Metric label="f drift" value={fab.frequency_drift_MHz.toFixed(0)} unit="MHz" tone="primary" size="sm" />
+                    <Metric label="g drift" value={fab.coupling_drift_MHz.toFixed(1)} unit="MHz" tone="cyan" size="sm" />
+                    <Metric label="spec" value={`±${(fab.spec_window_MHz / 2).toFixed(0)}`} unit="MHz" tone="violet" size="sm" />
+                  </div>
+                  <div className="space-y-1.5 pt-1">
+                    {fab.steps.map((s) => {
+                      const ok = s.status === "pass";
+                      return (
+                        <div
+                          key={s.name}
+                          className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-surface-2"
+                        >
+                          <span
+                            className={cn(
+                              "grid h-6 w-6 shrink-0 place-items-center rounded-full",
+                              ok ? "bg-success/15 text-success" : "bg-error/15 text-error",
+                            )}
+                          >
+                            {ok ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : <X className="h-3.5 w-3.5" strokeWidth={3} />}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-fg">{s.name}</p>
+                            <p className="font-mono text-2xs text-fg-subtle">tolerance ±{s.tolerance_nm} nm</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 p-3">
+                    <Activity className="h-4 w-4 shrink-0 text-primary" />
+                    <span className="text-xs text-fg-muted">
+                      {fab.frequency_drift_MHz <= fab.spec_window_MHz
+                        ? "Drift within spec window — high-yield process."
+                        : "Drift exceeds spec window — tighten junction tolerance to raise yield."}
+                    </span>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
       </div>
-    </div>
-  );
-}
-
-function ProcRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between border-b border-line/60 pb-2.5 last:border-0">
-      <span className="flex items-center gap-2 text-fg-muted">
-        {icon}
-        {label}
-      </span>
-      <span className="font-medium text-fg">{value}</span>
     </div>
   );
 }
