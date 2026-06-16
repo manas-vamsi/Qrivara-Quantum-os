@@ -9,6 +9,7 @@ import {
   Download,
   FolderOpen,
   ChevronRight,
+  Info,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -46,9 +47,11 @@ export default function Results() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [liveResults, setLiveResults] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [formats, setFormats] = useState<any>(null);
 
   useEffect(() => {
     fetchProjects();
+    api.getExportFormats().then(setFormats).catch(console.error);
   }, [fetchProjects]);
 
   const project = useMemo(() => projects.find((p) => p.id === selectedId) ?? null, [projects, selectedId]);
@@ -61,6 +64,8 @@ export default function Results() {
           // Format for UI
           const m = data.metrics;
           const formatted = {
+            method: data.method,
+            jobId: data.last_job_id,
             metrics: [
               { label: "Frequency", value: m.frequency_GHz.toFixed(3), unit: "GHz", tone: "primary" as const, icon: <Radio className="h-[1.1rem] w-[1.1rem]" /> },
               { label: "Q Factor", value: m.q_factor_k.toFixed(1), unit: "k", tone: "cyan" as const, icon: <Gauge className="h-[1.1rem] w-[1.1rem]" /> },
@@ -93,6 +98,14 @@ export default function Results() {
     }
   }, [selectedId]);
 
+  const handleExportDesign = (fmt: string) => {
+    if (selectedId) api.downloadDesignExport(selectedId, fmt);
+  };
+
+  const handleExportSim = (fmt: string) => {
+    if (liveResults?.jobId) api.downloadSimulationExport(liveResults.jobId, fmt);
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -111,9 +124,15 @@ export default function Results() {
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </Select>
-            <Button variant="outline" icon={<Download className="h-4 w-4" />} disabled={!project} onClick={() => alert("Exported results to CSV")}>
-              Export
-            </Button>
+            {formats?.design && (
+              <div className="flex gap-1">
+                {Object.keys(formats.design).map(f => (
+                  <Button key={f} size="sm" variant="ghost" icon={<Download className="h-4 w-4" />} onClick={() => handleExportDesign(f)} disabled={!project}>
+                    {f.toUpperCase()}
+                  </Button>
+                ))}
+              </div>
+            )}
           </>
         }
       />
@@ -180,8 +199,14 @@ export default function Results() {
           </Card>
 
           {/* Metrics */}
+          {liveResults.method && (
+            <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-medium text-primary">
+              <Info className="h-3.5 w-3.5" />
+              Method: {liveResults.method}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
-            {liveResults.metrics.map((m: any) => (
+            {(liveResults.metrics || []).map((m: any) => (
               <StatCard key={m.label} {...m} />
             ))}
           </div>
@@ -265,6 +290,25 @@ export default function Results() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Export Result */}
+          {liveResults.jobId && formats?.result && (
+            <Card>
+              <CardContent className="flex items-center justify-between py-4">
+                <div>
+                  <p className="text-sm font-semibold text-fg">Export result data</p>
+                  <p className="text-xs text-fg-subtle">Download raw simulation metrics and matrices.</p>
+                </div>
+                <div className="flex gap-2">
+                  {Object.keys(formats.result).map(f => (
+                    <Button key={f} size="sm" variant="outline" onClick={() => handleExportSim(f)}>
+                      {f.toUpperCase()}
+                    </Button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
     </div>

@@ -18,6 +18,7 @@ from .routers import (
     components,
     designs,
     experiments,
+    export,
     materials,
     optimization,
     projects,
@@ -57,7 +58,7 @@ app.add_middleware(
 
 for module in (
     auth, projects, designs, components, materials, simulations,
-    codegen, optimization, results, experiments, collaboration, search,
+    codegen, optimization, results, experiments, collaboration, search, export,
 ):
     app.include_router(module.router)
 

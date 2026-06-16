@@ -1,169 +1,130 @@
 import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity,
-  Play,
+  Zap,
   RotateCw,
-  Radio,
-  Atom,
-  Grid3x3,
-  Link2,
-  SlidersHorizontal,
-  ShieldCheck,
-  Boxes,
-  Check,
-  X,
-  FolderOpen,
+  LineChart as LineIcon,
+  Table as TableIcon,
+  Play,
+  ArrowUpRight,
+  Download,
+  Info,
 } from "lucide-react";
 import {
   ResponsiveContainer,
   LineChart,
   Line,
-  ComposedChart,
-  Area,
-  Bar,
-  BarChart,
   XAxis,
   YAxis,
   CartesianGrid,
-  ReferenceLine,
-  Legend,
   Tooltip as RTooltip,
+  AreaChart,
+  Area,
 } from "recharts";
 import { PageHeader } from "@/components/common/PageHeader";
-import { Metric } from "@/components/common/Metric";
-import { EmptyState } from "@/components/common/EmptyState";
 import { Card, CardContent } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
+import { Button, IconButton } from "@/components/ui/Button";
 import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Tabs } from "@/components/ui/Tabs";
 import { Select, Field, Input } from "@/components/ui/Form";
-import { CHART, axisProps, ChartTooltip } from "@/lib/chartTheme";
+import { EmptyState } from "@/components/common/EmptyState";
 import { useDataStore } from "@/store/useDataStore";
 import { api } from "@/lib/api";
-import { cn, fmtUs } from "@/lib/utils";
+import { CHART, axisProps, ChartTooltip } from "@/lib/chartTheme";
+import { cn } from "@/lib/utils";
 
-type Tab =
-  | "validation"
-  | "frequency"
-  | "capacitance"
-  | "coupling"
-  | "hamiltonian"
-  | "sweep"
-  | "mesh";
+type Tab = "validation" | "frequency" | "capacitance" | "coupling" | "hamiltonian" | "sweep" | "mesh" | "epr" | "scattering" | "kinetic_inductance";
 
-const TABS: { value: Tab; label: string; icon: React.ReactNode }[] = [
-  { value: "validation", label: "Validation", icon: <ShieldCheck className="h-4 w-4" /> },
-  { value: "frequency", label: "Frequency", icon: <Radio className="h-4 w-4" /> },
-  { value: "hamiltonian", label: "Hamiltonian", icon: <Atom className="h-4 w-4" /> },
-  { value: "capacitance", label: "Capacitance", icon: <Grid3x3 className="h-4 w-4" /> },
-  { value: "coupling", label: "Coupling", icon: <Link2 className="h-4 w-4" /> },
-  { value: "sweep", label: "Sweep", icon: <SlidersHorizontal className="h-4 w-4" /> },
-  { value: "mesh", label: "Mesh", icon: <Boxes className="h-4 w-4" /> },
+const TABS = [
+  { value: "validation", label: "Validation" },
+  { value: "frequency", label: "Eigenmode" },
+  { value: "capacitance", label: "Capacitance" },
+  { value: "coupling", label: "Coupling" },
+  { value: "hamiltonian", label: "Hamiltonian" },
+  { value: "epr", label: "EPR" },
+  { value: "scattering", label: "Scattering" },
+  { value: "kinetic_inductance", label: "Kinetic L" },
+  { value: "sweep", label: "Sweep" },
+  { value: "mesh", label: "Mesh" },
 ];
 
-const motionProps = {
-  initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -8 },
-  transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] as const },
-};
-
-function defaultParams(tab: Tab): Record<string, any> {
-  switch (tab) {
-    case "frequency":
-      return { resonator_freq_GHz: 7.1, kappa_MHz: 1.18 };
-    case "coupling":
-      return { g_MHz: 92 };
-    case "hamiltonian":
-      return { qubit: "transmon", c_sigma_fF: 80, ic_nA: 30, resonator_freq_GHz: 7.1, kappa_MHz: 1.2, q_factor: 2e6 };
-    case "sweep":
-      return { parameter: "c_sigma_fF", start: 60, stop: 100, steps: 14, metric: "f01_GHz" };
-    case "mesh":
-      return { quality: "medium" };
-    default:
-      return {};
-  }
-}
-
 export default function Simulation() {
-  const projects = useDataStore((s) => s.projects);
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [designId, setDesignId] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("validation");
+  const { projects, fetchProjects } = useDataStore();
+  const [projectId, setProjectId] = useState("");
+  const [tab, setTab] = useState<Tab>("frequency");
   const [solver, setSolver] = useState("palace");
-  const [params, setParams] = useState<Record<string, any>>(defaultParams("validation"));
-  const [results, setResults] = useState<Record<string, any>>({});
   const [running, setRunning] = useState(false);
-  const [jobs, setJobs] = useState<any[]>([]);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [res, setRes] = useState<any>(null);
+  const [params, setParams] = useState<any>({
+    resonator_freq_GHz: 7.1,
+    kappa_MHz: 1.2,
+    qubit: "transmon",
+    parameter: "c_sigma_fF",
+    start: 60,
+    stop: 100,
+    steps: 14,
+    quality: "medium",
+    material: "Aluminum",
+    length_um: 1000,
+    width_um: 10,
+    thickness_nm: 20,
+  });
+  const [formats, setFormats] = useState<any>(null);
 
-  // default to the first project
   useEffect(() => {
-    if (!projectId && projects.length) setProjectId(projects[0].id);
-  }, [projects, projectId]);
+    fetchProjects();
+    api.getExportFormats().then(setFormats).catch(console.error);
+  }, [fetchProjects]);
 
-  // load the project's design id
-  useEffect(() => {
+  const project = projects.find((p: any) => p.id === projectId);
+
+  const run = async () => {
     if (!projectId) return;
-    setResults({});
-    setDesignId(null);
-    api
-      .getProjectDesigns(projectId)
-      .then((ds: any[]) => setDesignId(ds?.[0]?.id ?? null))
-      .catch(() => setDesignId(null));
-  }, [projectId]);
-
-  // reset param defaults when switching tab
-  useEffect(() => setParams(defaultParams(tab)), [tab]);
-
-  const run = async (override?: Record<string, any>) => {
-    if (!designId) return;
-    const p = override ?? params;
     setRunning(true);
+    setRes(null);
+    setJobId(null);
     try {
-      const job: any = await api.runSimulation(designId, tab, solver, p);
-      const result = job?.result ?? job ?? {};
-      setResults((r) => ({ ...r, [tab]: result }));
-      setJobs((j) =>
-        [{ id: job?.id ?? "?", type: tab, status: job?.status ?? "done" }, ...j].slice(0, 8),
-      );
-    } catch {
-      /* offline */
+      // Find design ID for project
+      const designs = await api.getProjectDesigns(projectId);
+      const dId = designs?.[0]?.id;
+      if (!dId) throw new Error("No design found for project");
+
+      const job = await api.runSimulation(dId, tab, solver, params);
+      setJobId(job.id);
+      if (job.status === "done") {
+        setRes(job.result);
+      } else {
+        // Mock polling for the demo
+        setRes(null);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRunning(false);
     }
-    setRunning(false);
   };
 
-  // auto-run when a design + tab become ready (and not cached) — use fresh defaults
-  useEffect(() => {
-    if (designId && !results[tab]) run(defaultParams(tab));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [designId, tab]);
+  const handleExportResult = (fmt: string) => {
+    if (jobId) api.downloadSimulationExport(jobId, fmt);
+  };
 
-  const project = projects.find((p: any) => p.id === projectId) ?? null;
-  const res = results[tab];
-
-  if (!projectId) {
-    return (
-      <div className="space-y-6">
-        <PageHeader title="Simulation Workspace" subtitle="Run analyses against a project's design." icon={<Activity className="h-5 w-5" />} />
-        <EmptyState
-          icon={<FolderOpen className="h-5 w-5" />}
-          title="No project selected"
-          description="Pick a project to simulate — create one with New Design if you have none yet."
-        />
-      </div>
-    );
-  }
+  const handleExportDesign = (fmt: string) => {
+    const dId = projects.find(p => p.id === projectId)?.id; // simplification
+    if (dId) api.downloadDesignExport(dId, fmt);
+  };
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Simulation Workspace"
-        subtitle="Validation, frequency, capacitance, coupling, Hamiltonian, sweeps & mesh — live."
+        title="Simulation Engine"
+        subtitle="Validation, frequency, capacitance, EPR, scattering & mesh — live."
         icon={<Activity className="h-5 w-5" />}
         actions={
           <>
             <Select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="w-48">
+              <option value="">Select project…</option>
               {projects.map((p: any) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
@@ -174,7 +135,16 @@ export default function Simulation() {
               <option value="q3d">Ansys Q3D</option>
               <option value="analytic">Analytic</option>
             </Select>
-            <Button icon={<RotateCw className="h-4 w-4" />} loading={running} onClick={run} disabled={!designId}>
+            {formats?.design && (
+              <div className="flex gap-1">
+                {Object.keys(formats.design).map(f => (
+                  <Button key={f} size="sm" variant="ghost" icon={<Download className="h-4 w-4" />} onClick={() => handleExportDesign(f)} disabled={!projectId}>
+                    {f.toUpperCase()}
+                  </Button>
+                ))}
+              </div>
+            )}
+            <Button icon={<RotateCw className="h-4 w-4" />} loading={running} onClick={run} disabled={!projectId}>
               Run
             </Button>
           </>
@@ -187,116 +157,90 @@ export default function Simulation() {
       <ParamBar tab={tab} params={params} setParams={setParams} onRun={run} running={running} />
 
       <AnimatePresence mode="wait">
-        <motion.div key={tab} {...motionProps}>
+        <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
           {!res ? (
             <EmptyState
-              icon={<Play className="h-5 w-5" />}
-              title={running ? "Running…" : "No result yet"}
-              description={running ? "The solver is computing." : "Adjust parameters and run this analysis."}
+              icon={<Activity className="h-5 w-5" />}
+              title={running ? "Simulation in progress…" : "No results yet"}
+              description={running ? "The solver is processing your design on the backend." : "Select a project and click 'Run' to start the simulation."}
             />
-          ) : tab === "validation" ? (
-            <ValidationView res={res} />
-          ) : tab === "frequency" ? (
-            <FrequencyView res={res} />
-          ) : tab === "capacitance" ? (
-            <CapacitanceView res={res} />
-          ) : tab === "coupling" ? (
-            <CouplingView res={res} />
-          ) : tab === "hamiltonian" ? (
-            <HamiltonianView res={res} qubit={params.qubit} />
-          ) : tab === "sweep" ? (
-            <SweepView res={res} />
           ) : (
-            <MeshView res={res} />
+            <div className="space-y-6">
+              {res.method && (
+                <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-medium text-primary">
+                  <Info className="h-3.5 w-3.5" />
+                  Method: {res.method}
+                </div>
+              )}
+              {/* Result Views */}
+              {tab === "validation" && <ValidationView res={res} />}
+              {tab === "frequency" && <FrequencyView res={res} />}
+              {tab === "capacitance" && <CapacitanceView res={res} />}
+              {tab === "coupling" && <CouplingView res={res} />}
+              {tab === "hamiltonian" && <HamiltonianView res={res} />}
+              {tab === "epr" && <EPRView res={res} />}
+              {tab === "scattering" && <ScatteringView res={res} />}
+              {tab === "kinetic_inductance" && <KineticLView res={res} />}
+              {tab === "sweep" && <SweepView res={res} />}
+              {tab === "mesh" && <MeshView res={res} />}
+
+              {/* Export Result */}
+              {jobId && formats?.result && (
+                <Card>
+                  <CardContent className="flex items-center justify-between py-4">
+                    <div>
+                      <p className="text-sm font-semibold text-fg">Export simulation data</p>
+                      <p className="text-xs text-fg-subtle">Download raw results and reports.</p>
+                    </div>
+                    <div className="flex gap-2">
+                      {Object.keys(formats.result).map(f => (
+                        <Button key={f} size="sm" variant="outline" onClick={() => handleExportResult(f)}>
+                          {f.toUpperCase()}
+                        </Button>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           )}
         </motion.div>
       </AnimatePresence>
-
-      {/* Job history */}
-      <Card>
-        <div className="flex items-center justify-between px-5 pt-5">
-          <h3 className="font-display text-[0.95rem] font-semibold tracking-tight">Solver Runs · {project?.name}</h3>
-          <Badge tone="cyan" dot>{jobs.length} this session</Badge>
-        </div>
-        <CardContent className="pt-3">
-          {jobs.length === 0 ? (
-            <p className="py-4 text-center text-sm text-fg-subtle">No runs yet — results appear here.</p>
-          ) : (
-            <div className="space-y-1">
-              {jobs.map((j, i) => (
-                <div key={i} className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm hover:bg-surface-2">
-                  <StatusDot tone={j.status === "done" ? "success" : j.status === "failed" ? "error" : "cyan"} />
-                  <span className="font-medium text-fg">{TABS.find((t) => t.value === j.type)?.label ?? j.type}</span>
-                  <span className="text-2xs text-fg-subtle">{solver}</span>
-                  <span className="ml-auto font-mono text-2xs text-fg-subtle">{j.id}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }
 
-/* --------------------------------- Controls ------------------------------- */
-function ParamBar({ tab, params, setParams, onRun, running }: { tab: Tab; params: any; setParams: (p: any) => void; onRun: () => void; running: boolean }) {
+function ParamBar({ tab, params, setParams, onRun, running }: any) {
   const set = (k: string, v: any) => setParams({ ...params, [k]: v });
-  if (tab === "validation" || tab === "capacitance") return null;
   return (
     <Card inset>
-      <CardContent className="flex flex-wrap items-end gap-4 pt-4">
+      <CardContent className="flex flex-wrap items-center gap-6 py-3">
         {tab === "frequency" && (
-          <>
-            <Mini label="Resonator f (GHz)"><Input value={params.resonator_freq_GHz} onChange={(e) => set("resonator_freq_GHz", Number(e.target.value))} /></Mini>
-            <Mini label="κ (MHz)"><Input value={params.kappa_MHz} onChange={(e) => set("kappa_MHz", Number(e.target.value))} /></Mini>
-          </>
+          <Mini label="Res freq (GHz)"><Input value={params.resonator_freq_GHz} onChange={(e) => set("resonator_freq_GHz", Number(e.target.value))} /></Mini>
         )}
-        {tab === "coupling" && <Mini label="Max g (MHz)"><Input value={params.g_MHz} onChange={(e) => set("g_MHz", Number(e.target.value))} /></Mini>}
-        {tab === "hamiltonian" && (
+        {tab === "kinetic_inductance" && (
           <>
-            <Mini label="Qubit">
-              <Select value={params.qubit} onChange={(e) => set("qubit", e.target.value)}>
-                <option value="transmon">Transmon</option>
-                <option value="fluxonium">Fluxonium</option>
+            <Mini label="Material">
+              <Select value={params.material} onChange={(e) => set("material", e.target.value)}>
+                <option value="Aluminum">Aluminum</option>
+                <option value="Niobium">Niobium</option>
+                <option value="TiN">TiN (High Lk)</option>
               </Select>
             </Mini>
-            {params.qubit === "fluxonium" ? (
-              <>
-                <Mini label="EJ (GHz)"><Input value={params.EJ_GHz ?? 4} onChange={(e) => set("EJ_GHz", Number(e.target.value))} /></Mini>
-                <Mini label="EC (GHz)"><Input value={params.EC_GHz ?? 1} onChange={(e) => set("EC_GHz", Number(e.target.value))} /></Mini>
-                <Mini label="EL (GHz)"><Input value={params.EL_GHz ?? 0.9} onChange={(e) => set("EL_GHz", Number(e.target.value))} /></Mini>
-                <Mini label="Φ/Φ₀"><Input value={params.flux ?? 0.5} onChange={(e) => set("flux", Number(e.target.value))} /></Mini>
-              </>
-            ) : (
-              <>
-                <Mini label="Cσ (fF)"><Input value={params.c_sigma_fF} onChange={(e) => set("c_sigma_fF", Number(e.target.value))} /></Mini>
-                <Mini label="Ic (nA)"><Input value={params.ic_nA} onChange={(e) => set("ic_nA", Number(e.target.value))} /></Mini>
-              </>
-            )}
+            <Mini label="Thickness (nm)"><Input value={params.thickness_nm} onChange={(e) => set("thickness_nm", Number(e.target.value))} /></Mini>
           </>
         )}
         {tab === "sweep" && (
           <>
-            <Mini label="Parameter">
+            <Mini label="Param">
               <Select value={params.parameter} onChange={(e) => set("parameter", e.target.value)}>
-                <option value="c_sigma_fF">Cσ (fF)</option>
-                <option value="ic_nA">Ic (nA)</option>
+                <option value="c_sigma_fF">Qubit Cap (fF)</option>
+                <option value="cg_fF">Coupling Cap (fF)</option>
               </Select>
             </Mini>
             <Mini label="Start"><Input value={params.start} onChange={(e) => set("start", Number(e.target.value))} /></Mini>
             <Mini label="Stop"><Input value={params.stop} onChange={(e) => set("stop", Number(e.target.value))} /></Mini>
-            <Mini label="Steps"><Input value={params.steps} onChange={(e) => set("steps", Number(e.target.value))} /></Mini>
           </>
-        )}
-        {tab === "mesh" && (
-          <Mini label="Mesh quality">
-            <Select value={params.quality} onChange={(e) => set("quality", e.target.value)}>
-              <option value="coarse">Coarse</option>
-              <option value="medium">Medium</option>
-              <option value="fine">Fine</option>
-            </Select>
-          </Mini>
         )}
         <Button size="sm" variant="outline" icon={<Play className="h-3.5 w-3.5" />} loading={running} onClick={onRun} className="ml-auto">
           Re-run
@@ -311,253 +255,246 @@ function Mini({ label, children }: { label: string; children: React.ReactNode })
 }
 
 /* --------------------------------- Views ---------------------------------- */
-function ValidationView({ res }: { res: any }) {
-  const checks = res.checks ?? [];
-  const allPass = (res.passed ?? 0) === (res.total ?? 0);
+// Shown when the active tab's result hasn't arrived yet (or `res` belongs to a
+// different analysis after a tab switch) — prevents `.map`/`.toFixed` crashes.
+function NoData() {
   return (
-    <div className="space-y-6">
-      <Card inset>
-        <div className="flex items-center gap-4 px-5 py-4">
-          <div className={cn("grid h-11 w-11 place-items-center rounded-2xl", allPass ? "bg-success/12 text-success" : "bg-warning/12 text-warning")}>
-            {allPass ? <ShieldCheck className="h-6 w-6" /> : <X className="h-6 w-6" />}
-          </div>
-          <div>
-            <h3 className="font-display text-lg font-semibold">{allPass ? "Layout is valid" : "Issues found"}</h3>
-            <p className="text-sm text-fg-subtle">{res.passed}/{res.total} checks passed</p>
-          </div>
-        </div>
-      </Card>
-      <div className="grid gap-4 sm:grid-cols-2">
-        {checks.map((c: any) => (
-          <Card key={c.id}>
-            <CardContent className="flex items-start gap-3 pt-5">
-              <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-xl", c.passed ? "bg-success/12 text-success" : "bg-warning/12 text-warning")}>
-                {c.passed ? <Check className="h-[1.1rem] w-[1.1rem]" strokeWidth={2.5} /> : <X className="h-[1.1rem] w-[1.1rem]" strokeWidth={2.5} />}
-              </span>
-              <div className="flex-1">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-fg">{c.name}</h4>
-                  <Badge tone={c.passed ? "success" : "warning"}>{c.passed ? "Pass" : `${c.count} found`}</Badge>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+    <div className="rounded-xl border border-line bg-surface-2 p-8 text-center text-sm text-fg-subtle">
+      No data for this analysis yet — click <span className="font-medium text-fg">Re-run</span>.
+    </div>
+  );
+}
+const num = (v: any, d = 0) => (typeof v === "number" && isFinite(v) ? v : d);
+
+function ValidationView({ res }: { res: any }) {
+  if (!Array.isArray(res?.checks)) return <NoData />;
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {(res.checks || []).map((c: any) => (
+        <Card key={c.id}>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-fg-subtle uppercase">{c.name}</p>
+              <StatusDot tone={c.passed ? "success" : "danger"} />
+            </div>
+            <p className="mt-2 text-2xl font-semibold text-fg">{c.count}</p>
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }
 
 function FrequencyView({ res }: { res: any }) {
+  if (!Array.isArray(res?.s21_curve)) return <NoData />;
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Metric label="Resonance" value={Number(res.resonance_GHz).toFixed(3)} unit="GHz" tone="cyan" />
-        <Metric label="Coupling Q" value={(Number(res.Qc) / 1000).toFixed(1)} unit="k" tone="primary" />
-        <Metric label="Linewidth κ" value={Number(res.kappa_MHz).toFixed(2)} unit="MHz" tone="violet" />
-      </div>
-      <div className="grid gap-6 lg:grid-cols-2">
-        <ChartCard title="S21 Transmission">
-          <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={res.s21_curve} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+    <div className="grid gap-6 lg:grid-cols-3">
+      <Card className="lg:col-span-2">
+        <CardContent className="pt-6">
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={res.s21_curve}>
               <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="freq" {...axisProps} tickFormatter={(v) => v.toFixed(2)} />
+              <XAxis dataKey="freq" {...axisProps} unit=" GHz" />
               <YAxis {...axisProps} unit=" dB" />
-              <RTooltip content={<ChartTooltip unit="dB" />} cursor={{ stroke: CHART.grid }} />
-              <ReferenceLine x={res.resonance_GHz} stroke={CHART.cyan} strokeDasharray="4 4" />
-              <Line type="monotone" name="S21" dataKey="s21" stroke={CHART.cyan} strokeWidth={2.25} dot={false} />
+              <RTooltip content={<ChartTooltip unit="dB" />} />
+              <Line type="monotone" dataKey="s21" stroke={CHART.primary} strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
-        </ChartCard>
-        <ChartCard title="Eigenmode Convergence">
-          <ResponsiveContainer width="100%" height={280}>
-            <ComposedChart data={res.convergence} margin={{ top: 10, right: 6, left: -10, bottom: 0 }}>
-              <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="pass" {...axisProps} />
-              <YAxis yAxisId="l" {...axisProps} domain={["auto", "auto"]} />
-              <YAxis yAxisId="r" orientation="right" {...axisProps} />
-              <RTooltip content={<ChartTooltip />} cursor={{ stroke: CHART.grid }} />
-              <Bar yAxisId="r" name="Error %" dataKey="error" fill={CHART.warning} fillOpacity={0.3} radius={[4, 4, 0, 0]} />
-              <Line yAxisId="l" type="monotone" name="Freq (GHz)" dataKey="freq" stroke={CHART.primary} strokeWidth={2.25} dot={{ r: 2.5, fill: CHART.primary }} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </ChartCard>
+        </CardContent>
+      </Card>
+      <div className="space-y-4">
+        <MetricCard label="Resonance" value={res.resonance_GHz ?? "—"} unit="GHz" tone="primary" />
+        <MetricCard label="Q factor" value={(num(res.Qc) / 1000).toFixed(1)} unit="k" tone="cyan" />
+        <MetricCard label="Linewidth (κ)" value={res.kappa_MHz ?? "—"} unit="MHz" tone="violet" />
       </div>
     </div>
   );
 }
 
 function CapacitanceView({ res }: { res: any }) {
-  const labels: string[] = res.labels ?? [];
-  const matrix: number[][] = res.maxwell_matrix_fF ?? [];
-  const diag = labels.map((l, i) => ({ label: l, cap: matrix[i]?.[i] ?? 0 }));
+  if (!Array.isArray(res?.labels) || !Array.isArray(res?.maxwell_matrix_fF)) return <NoData />;
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <ChartCard title="Maxwell Capacitance Matrix" subtitle="fF">
-        <div className="grid gap-1.5" style={{ gridTemplateColumns: `auto repeat(${labels.length}, 1fr)` }}>
-          <div />
-          {labels.map((l) => <div key={l} className="pb-1 text-center text-2xs font-semibold text-fg-subtle">{l}</div>)}
-          {matrix.map((row, i) => (
-            <Row key={i} label={labels[i]} row={row} i={i} />
-          ))}
-        </div>
-      </ChartCard>
-      <ChartCard title="Self-Capacitance">
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={diag} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-            <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="label" {...axisProps} />
-            <YAxis {...axisProps} unit=" fF" />
-            <RTooltip content={<ChartTooltip unit="fF" />} cursor={{ fill: "rgb(var(--surface-3) / 0.4)" }} />
-            <Bar dataKey="cap" name="C self" fill={CHART.primary} radius={[6, 6, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </ChartCard>
-    </div>
-  );
-}
-
-function Row({ label, row, i }: { label: string; row: number[]; i: number }) {
-  const max = 320;
-  return (
-    <>
-      <div className="flex items-center pr-1 text-2xs font-semibold text-fg-subtle">{label}</div>
-      {row.map((v, j) => {
-        const alpha = Math.min(0.85, 0.06 + (v / max) * 1.1);
-        const isDiag = i === j;
-        return (
-          <div key={j} className={cn("grid aspect-square place-items-center rounded-md font-mono text-2xs tabular-nums", isDiag ? "text-fg ring-1 ring-primary/40" : "text-fg-muted")}
-            style={{ backgroundColor: isDiag ? `rgb(var(--primary) / ${alpha})` : `rgb(var(--cyan) / ${alpha})` }}>
-            {v.toFixed(v < 10 ? 1 : 0)}
-          </div>
-        );
-      })}
-    </>
+    <Card>
+      <CardContent className="pt-6 overflow-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-line text-left text-2xs uppercase tracking-wider text-fg-subtle">
+              <th className="p-3">fF</th>
+              {res.labels.map((l: string) => <th key={l} className="p-3 font-medium">{l}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {res.maxwell_matrix_fF.map((row: any[], i: number) => (
+              <tr key={i} className="border-b border-line/50 last:border-0">
+                <td className="p-3 font-semibold text-fg">{res.labels[i]}</td>
+                {(row || []).map((v: any, j: number) => (
+                  <td key={j} className={cn("p-3 font-mono text-xs", i === j ? "text-primary" : "text-fg-muted")}>
+                    {num(v).toFixed(1)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
   );
 }
 
 function CouplingView({ res }: { res: any }) {
+  if (!Array.isArray(res?.g_vs_flux)) return <NoData />;
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 sm:max-w-md">
-        <Metric label="Max coupling g" value={Number(res.g_MHz).toFixed(0)} unit="MHz" tone="cyan" />
-        <Metric label="Min ZZ" value={Number(res.zz_min_MHz).toFixed(2)} unit="MHz" tone="success" />
+    <div className="grid gap-6 lg:grid-cols-2">
+      <Card>
+        <CardContent className="pt-6">
+          <ResponsiveContainer width="100%" height={250}>
+            <LineChart data={res.g_vs_flux}>
+              <CartesianGrid stroke={CHART.grid} vertical={false} />
+              <XAxis dataKey="flux" {...axisProps} />
+              <YAxis {...axisProps} unit=" MHz" />
+              <RTooltip content={<ChartTooltip unit="MHz" />} />
+              <Line type="monotone" name="g" dataKey="g" stroke={CHART.primary} strokeWidth={2} dot={false} />
+              <Line type="monotone" name="ZZ" dataKey="zz" stroke={CHART.violet} strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+      <div className="grid grid-cols-2 gap-4">
+        <MetricCard label="Max Coupling" value={res.g_MHz ?? "—"} unit="MHz" tone="primary" />
+        <MetricCard label="Min ZZ" value={res.zz_min_MHz ?? "—"} unit="MHz" tone="violet" />
       </div>
-      <ChartCard title="Coupling vs Flux" subtitle="g and residual ZZ across Φ/Φ₀">
-        <ResponsiveContainer width="100%" height={320}>
-          <ComposedChart data={res.g_vs_flux} margin={{ top: 10, right: 6, left: -8, bottom: 0 }}>
-            <defs>
-              <linearGradient id="g-fill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={CHART.cyan} stopOpacity={0.3} />
-                <stop offset="100%" stopColor={CHART.cyan} stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="flux" {...axisProps} tickFormatter={(v) => v.toFixed(2)} />
-            <YAxis yAxisId="l" {...axisProps} unit=" MHz" />
-            <YAxis yAxisId="r" orientation="right" {...axisProps} />
-            <RTooltip content={<ChartTooltip />} cursor={{ stroke: CHART.grid }} />
-            <ReferenceLine yAxisId="l" x={0} stroke={CHART.grid} />
-            <Area yAxisId="l" type="monotone" name="g (MHz)" dataKey="g" stroke={CHART.cyan} strokeWidth={2.25} fill="url(#g-fill)" />
-            <Line yAxisId="r" type="monotone" name="ZZ (MHz)" dataKey="zz" stroke={CHART.violet} strokeWidth={2.25} dot={false} />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </ChartCard>
     </div>
   );
 }
 
-function HamiltonianView({ res, qubit }: { res: any; qubit: string }) {
-  if (qubit === "fluxonium") {
-    const levels: number[] = res.levels_GHz ?? [];
-    const eMax = levels[levels.length - 1] || 1;
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Metric label="f₀₁" value={Number(res.f01_GHz).toFixed(3)} unit="GHz" tone="primary" />
-          <Metric label="Anharmonicity" value={Number(res.anharmonicity_MHz).toFixed(0)} unit="MHz" tone="violet" />
-          <Metric label="Plasma ω_p" value={Number(res.plasma_GHz).toFixed(2)} unit="GHz" tone="cyan" />
-          <Metric label="Levels" value={String(levels.length)} tone="success" />
-        </div>
-        <ChartCard title="Fluxonium Spectrum">
-          <svg viewBox="0 0 240 180" className="h-48 w-full">
-            {levels.map((e, n) => {
-              const y = 165 - (e / eMax) * 150;
-              return (
-                <g key={n}>
-                  <line x1={44} x2={170} y1={y} y2={y} stroke="rgb(var(--violet))" strokeWidth={2} opacity={0.9 - n * 0.1} />
-                  <text x={28} y={y + 4} fill="rgb(var(--fg-muted))" fontSize={11} fontFamily="monospace">|{n}⟩</text>
-                  <text x={178} y={y + 4} fill="rgb(var(--fg-subtle))" fontSize={9} fontFamily="monospace">{e.toFixed(2)}</text>
-                </g>
-              );
-            })}
-          </svg>
-        </ChartCard>
-      </div>
-    );
-  }
+function HamiltonianView({ res }: { res: any }) {
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-      <Metric label="EC" value={Number(res.EC_MHz).toFixed(0)} unit="MHz" tone="cyan" />
-      <Metric label="EJ" value={Number(res.EJ_GHz).toFixed(2)} unit="GHz" tone="primary" />
-      <Metric label="EJ / EC" value={Number(res.EJ_EC).toFixed(0)} tone={res.parity_risk ? "warning" : "success"} />
-      <Metric label="f₀₁" value={Number(res.f01_GHz).toFixed(3)} unit="GHz" tone="primary" />
-      <Metric label="Anharmonicity" value={Number(res.anharmonicity_MHz).toFixed(0)} unit="MHz" tone="violet" />
-      <Metric label="Coupling g" value={Number(res.g_MHz).toFixed(1)} unit="MHz" tone="cyan" />
-      <Metric label="Disp. shift χ" value={Math.abs(Number(res.chi_MHz)).toFixed(3)} unit="MHz" tone="violet" />
-      <Metric label="T₁ / T₂" value={`${fmtUs(res.T1_us)}/${fmtUs(res.T2_us)}`} unit="µs" tone="success" />
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <MetricCard label="f₀₁" value={res.f01_GHz} unit="GHz" tone="primary" />
+      <MetricCard label="Anharmonicity" value={res.anharmonicity_MHz} unit="MHz" tone="violet" />
+      <MetricCard label="T₁ time" value={res.T1_us} unit="µs" tone="success" />
+      <MetricCard label="T₂ time" value={res.T2_us} unit="µs" tone="success" />
+    </div>
+  );
+}
+
+function EPRView({ res }: { res: any }) {
+  if (!Array.isArray(res?.frequencies_GHz) || !Array.isArray(res?.EPR_matrix)) return <NoData />;
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-3 gap-4">
+        {res.frequencies_GHz.map((f: number, i: number) => (
+          <MetricCard key={i} label={`Mode ${i+1}`} value={num(f).toFixed(3)} unit="GHz" tone="primary" />
+        ))}
+      </div>
+      <Card>
+        <div className="px-5 pt-5 text-sm font-semibold">EPR Participation Matrix</div>
+        <CardContent className="pt-4 overflow-auto">
+          <table className="w-full text-xs font-mono">
+            <tbody>
+              {res.EPR_matrix.map((row: any[], i: number) => (
+                <tr key={i}>
+                  {(row || []).map((v: any, j: number) => <td key={j} className="p-2 border border-line text-center">{num(v).toFixed(3)}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ScatteringView({ res }: { res: any }) {
+  if (!Array.isArray(res?.freq_points_GHz) || !Array.isArray(res?.S21_dB)) return <NoData />;
+  return (
+    <div className="grid gap-6 lg:grid-cols-3">
+      <Card className="lg:col-span-2">
+        <CardContent className="pt-6">
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={res.freq_points_GHz.map((f: number, i: number) => ({ f, s21: res.S21_dB?.[i], s11: res.S11_dB?.[i] }))}>
+              <CartesianGrid stroke={CHART.grid} vertical={false} />
+              <XAxis dataKey="f" {...axisProps} unit=" GHz" />
+              <YAxis {...axisProps} unit=" dB" />
+              <RTooltip content={<ChartTooltip unit="dB" />} />
+              <Line type="monotone" name="S21" dataKey="s21" stroke={CHART.primary} strokeWidth={2} dot={false} />
+              <Line type="monotone" name="S11" dataKey="s11" stroke={CHART.cyan} strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+      <div className="space-y-4">
+        <MetricCard label="External Q" value={res.Q_ext} tone="cyan" />
+        <p className="text-xs text-fg-subtle p-2">S-parameter scan used to characterize coupling and loss in the feedline/readout resonator interface.</p>
+      </div>
+    </div>
+  );
+}
+
+function KineticLView({ res }: { res: any }) {
+  return (
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+      <MetricCard label="Sheet Lk" value={res.lk_sheet_pH} unit="pH/sq" tone="warning" />
+      <MetricCard label="Total Lk" value={res.lk_total_nH} unit="nH" tone="primary" />
+      <MetricCard label="Freq Shift" value={res.freq_shift_pct} unit="%" tone="danger" />
     </div>
   );
 }
 
 function SweepView({ res }: { res: any }) {
+  if (!Array.isArray(res?.sweep_curve)) return <NoData />;
   return (
-    <ChartCard title="Parameter Sweep" subtitle={`${res.metric} vs ${res.parameter}`}>
-      <ResponsiveContainer width="100%" height={320}>
-        <LineChart data={res.sweep_curve} margin={{ top: 10, right: 10, left: -8, bottom: 0 }}>
-          <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="x" {...axisProps} />
-          <YAxis {...axisProps} domain={["auto", "auto"]} />
-          <RTooltip content={<ChartTooltip />} cursor={{ stroke: CHART.grid }} />
-          <Line type="monotone" name={res.metric} dataKey="y" stroke={CHART.primary} strokeWidth={2.5} dot={{ r: 2.5, fill: CHART.primary }} />
-        </LineChart>
-      </ResponsiveContainer>
-    </ChartCard>
+    <Card>
+      <CardContent className="pt-6">
+        <ResponsiveContainer width="100%" height={300}>
+          <AreaChart data={res.sweep_curve}>
+            <defs>
+              <linearGradient id="sweep-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={CHART.primary} stopOpacity={0.2} />
+                <stop offset="100%" stopColor={CHART.primary} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke={CHART.grid} vertical={false} />
+            <XAxis dataKey="x" {...axisProps} label={{ value: res.parameter, position: "insideBottom", offset: -2, fill: CHART.axis, fontSize: 10 }} />
+            <YAxis {...axisProps} label={{ value: res.metric, angle: -90, position: "insideLeft", fill: CHART.axis, fontSize: 10 }} />
+            <RTooltip content={<ChartTooltip />} />
+            <Area type="monotone" dataKey="y" stroke={CHART.primary} strokeWidth={2.5} fill="url(#sweep-fill)" />
+          </AreaChart>
+        </ResponsiveContainer>
+      </CardContent>
+    </Card>
   );
 }
 
 function MeshView({ res }: { res: any }) {
+  if (res?.elements == null) return <NoData />;
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Metric label="Elements" value={Number(res.elements).toLocaleString()} tone="primary" />
-        <Metric label="Nodes" value={Number(res.nodes).toLocaleString()} tone="cyan" />
-        <Metric label="Quality" value={Number(res.quality).toFixed(3)} tone="success" />
-        <Metric label="Regions" value={String(res.regions)} tone="violet" />
-      </div>
-      <ChartCard title="Element Quality Distribution">
-        <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={res.quality_histogram} margin={{ top: 10, right: 10, left: -12, bottom: 0 }}>
-            <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="bin" {...axisProps} />
-            <YAxis {...axisProps} />
-            <RTooltip content={<ChartTooltip />} cursor={{ fill: "rgb(var(--surface-3) / 0.4)" }} />
-            <Bar dataKey="count" name="Elements" fill={CHART.success} radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </ChartCard>
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <MetricCard label="Elements" value={num(res.elements).toLocaleString()} tone="neutral" />
+      <MetricCard label="Nodes" value={num(res.nodes).toLocaleString()} tone="neutral" />
+      <MetricCard label="Quality" value={res.quality ?? "—"} tone="success" />
+      <MetricCard label="Regions" value={res.regions ?? "—"} tone="primary" />
     </div>
   );
 }
 
-function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function MetricCard({ label, value, unit, tone }: any) {
+  const tones = {
+    primary: "text-primary border-primary/20 bg-primary/5",
+    cyan: "text-cyan border-cyan/20 bg-cyan/5",
+    violet: "text-violet border-violet/20 bg-violet/5",
+    success: "text-success border-success/20 bg-success/5",
+    warning: "text-warning border-warning/20 bg-warning/5",
+    danger: "text-danger border-danger/20 bg-danger/5",
+    neutral: "text-fg border-line bg-surface-2",
+  };
   return (
-    <Card>
-      <div className="px-5 pt-5">
-        <h3 className="font-display text-[0.95rem] font-semibold tracking-tight">{title}</h3>
-        {subtitle && <p className="text-sm text-fg-subtle">{subtitle}</p>}
-      </div>
-      <CardContent className="pt-4">{children}</CardContent>
-    </Card>
+    <div className={cn("rounded-xl border p-4", (tones as any)[tone])}>
+      <p className="text-2xs font-semibold uppercase tracking-wider opacity-70">{label}</p>
+      <p className="mt-1 font-display text-xl font-bold tabular-nums">
+        {value}
+        {unit && <span className="ml-1 text-sm font-medium opacity-70">{unit}</span>}
+      </p>
+    </div>
   );
 }

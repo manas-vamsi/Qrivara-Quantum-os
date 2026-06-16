@@ -22,10 +22,15 @@ dist-ssr
 *.sln
 *.sw?
 
+# Claude Code skills — kept local only (re-installable from GitHub),
+# so they don't clutter the repo or the changed-files view.
+.claude/skills/
+.claude/skills-disabled/
+
 # Python
 backend/.venv/
-backend/__pycache__/
-backend/*.py[cod]
-backend/*$py.class
+__pycache__/
+*.py[cod]
+*$py.class
 backend/qrivara.db
 .env

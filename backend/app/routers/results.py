@@ -1,10 +1,10 @@
 import random
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Project
+from ..models import Project, SimulationJob, Design
 
 router = APIRouter(prefix="/results", tags=["results"])
 
@@ -35,4 +35,16 @@ def project_results(project_id: str, session: Session = Depends(get_session)):
     if not p:
         raise HTTPException(404, "Project not found")
     data = _seeded_metrics(p.id, p.qubits)
-    return {"project": {"id": p.id, "name": p.name, "qubits": p.qubits, "status": p.status}, **data}
+    # find latest simulation job for this project
+    job = session.exec(
+        select(SimulationJob).where(SimulationJob.design_id.in_(
+            select(Design.id).where(Design.project_id == project_id)
+        )).order_by(SimulationJob.finished_at.desc())
+    ).first()
+    
+    return {
+        "project": {"id": p.id, "name": p.name, "qubits": p.qubits, "status": p.status}, 
+        **data, 
+        "method": "analytic estimate" if not job else f"computed ({job.solver})",
+        "last_job_id": job.id if job else None
+    }

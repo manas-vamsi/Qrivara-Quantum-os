@@ -1,8 +1,6 @@
 from datetime import datetime, timezone
-import json
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
 from sqlmodel import Session, select
 
 from ..db import get_session
@@ -10,25 +8,10 @@ from ..models import Design, DesignVersion, User
 from ..schemas import DesignCreate, DocUpdate, SnapshotCreate
 from ..security import get_current_user
 
+# NOTE: GDS/DXF export lives in routers/export.py (real GDS-II + DXF writers).
+# The previous mock export route here collided with that path and is removed.
 router = APIRouter(prefix="/designs", tags=["designs"])
 
-@router.get("/{design_id}/export/gds")
-def export_gds(design_id: str, session: Session = Depends(get_session)):
-    d = session.get(Design, design_id)
-    if not d:
-        raise HTTPException(404, "Design not found")
-    
-    # In a real scenario, this would post-process the design document into 
-    # GDSII binary format using GDSTK or PHIDL. We'll return a mock payload.
-    # The payload incorporates the design ID and component count for realism.
-    doc = d.doc or {}
-    nodes = doc.get("nodes", [])
-    mock_binary = b"HEADER\x00\x01\x02\x03\x04" + f"GDSII Export for {design_id}. Contains {len(nodes)} components.\n".encode("utf-8") * 50
-    return Response(
-        content=mock_binary,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f"attachment; filename=design_{design_id}.gds"}
-    )
 
 @router.post("", status_code=201)
 def create_design(body: DesignCreate, session: Session = Depends(get_session)):
