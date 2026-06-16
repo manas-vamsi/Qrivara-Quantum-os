@@ -93,6 +93,16 @@ export const api = {
     const res = await fetch(`${API_BASE}/optimization/region/ej-ec`);
     return res.json();
   },
+  getExportFormats: async () => {
+    const res = await fetch(`${API_BASE}/export/formats`);
+    return res.json();
+  },
+  downloadDesignExport: (designId: string, format: string) => {
+    window.open(`${API_BASE}/designs/${designId}/export/${format}`, "_blank");
+  },
+  downloadSimulationExport: (jobId: string, format: string) => {
+    window.open(`${API_BASE}/simulations/${jobId}/export/${format}`, "_blank");
+  },
   runYield: async (body: any) => {
     const res = await fetch(`${API_BASE}/optimization/yield`, {
       method: "POST",

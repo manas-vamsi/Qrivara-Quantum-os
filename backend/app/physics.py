@@ -11,9 +11,13 @@ import math
 import numpy as np
 
 H = 6.62607015e-34
+HBAR = H / (2 * math.pi)
 E = 1.602176634e-19
-PHI0 = H / (2 * E)
+PHI0 = H / (2 * E)          # flux quantum h/2e
+PHI0_RED = HBAR / (2 * E)   # reduced flux quantum ħ/2e
 KB = 1.380649e-23
+EPS0 = 8.8541878128e-12     # vacuum permittivity [F/m]
+C_LIGHT = 299792458.0       # speed of light [m/s]
 
 
 def ec_from_capacitance(c_ff: float) -> float:
@@ -45,11 +49,20 @@ def coupling_g(cg: float, cq: float, cr: float, fq: float, fr: float) -> float:
     return 0.5 * beta * math.sqrt(max(fq * fr, 0.0)) * 1000
 
 
-def dispersive_shift(g: float, fq: float, fr: float, anh: float) -> float:
+def dispersive_shift(g: float, fq: float, fr: float, anh: float, full: bool = True) -> float:
+    """Dispersive (cross-Kerr) shift χ [MHz]. The RWA term is g²·α/(Δ(Δ+α)); with
+    ``full`` we add the counter-rotating Σ term (paper eq.10) that the review warns
+    not to drop — omitting it overestimates the Lamb shift by ~25% at 4/7 GHz.
+    g, fq, fr in GHz/MHz-consistent units; anh in MHz."""
     delta = (fq - fr) * 1000
     if abs(delta) < 1e-6 or abs(delta + anh) < 1e-6:
         return 0.0
-    return ((g * g) / delta) * (anh / (delta + anh))
+    chi = ((g * g) / delta) * (anh / (delta + anh))
+    if full:
+        sigma = (fq + fr) * 1000
+        if abs(sigma) > 1e-6 and abs(sigma + anh) > 1e-6:
+            chi += ((g * g) / sigma) * (anh / (sigma + anh))
+    return chi
 
 
 def purcell_t1(g: float, fq: float, fr: float, kappa: float) -> float:
@@ -58,6 +71,70 @@ def purcell_t1(g: float, fq: float, fr: float, kappa: float) -> float:
         return math.inf
     gamma = (g / delta) ** 2 * (kappa * 1e6)
     return (1 / gamma) * 1e6
+
+
+def purcell_filter_t1(g: float, fq: float, fr: float, kappa_f: float, bw_f: float) -> float:
+    """Purcell-limited T1 [µs] with a bandpass filter near the resonator (paper
+    eq.15): Γ = (g/Δ)²·(ωQ/ωR)·(κF/2Δ)·κ. ``kappa_f`` is the resonator linewidth
+    and ``bw_f`` the filter bandwidth (both MHz)."""
+    delta = (fq - fr) * 1000
+    if abs(delta) < 1e-6 or kappa_f <= 0 or bw_f <= 0:
+        return math.inf
+    gamma = (g / delta) ** 2 * (fq / fr) * (bw_f / (2 * abs(delta))) * (kappa_f * 1e6)
+    return (1 / gamma) * 1e6 if gamma > 0 else math.inf
+
+
+def kinetic_inductance(length_um: float, width_um: float, thickness_nm: float,
+                       rho_n_uohm_cm: float, tc_k: float) -> dict:
+    """Sheet + total kinetic inductance from Mattis–Bardeen (paper eq.17):
+    Lk ≈ 0.18·l·ħ·ρn/(w·t·kB·Tc). ρn in µΩ·cm. Returns sheet [pH/□] and total [nH]
+    (e.g. Nb ≈ 0.1 pH/□, TiN/NbN ≈ tens of pH/□)."""
+    rho = max(rho_n_uohm_cm, 1e-9) * 1e-8         # µΩ·cm → Ω·m
+    t = max(thickness_nm, 1e-3) * 1e-9
+    tc = max(tc_k, 1e-3)
+    lk_sheet = 0.18 * HBAR * rho / (t * KB * tc)   # H per square
+    squares = max(length_um, 0.0) / max(width_um, 1e-6)
+    return {
+        "lk_sheet_pH": lk_sheet * 1e12,
+        "lk_total_nH": lk_sheet * squares * 1e9,
+        "squares": round(squares, 2),
+    }
+
+
+def zz_interaction(f1_ghz: float, f2_ghz: float, anh1_mhz: float, anh2_mhz: float, j_mhz: float) -> float:
+    """Static ZZ rate [kHz] between two capacitively-coupled transmons via their
+    higher levels (perturbation theory, paper §4.2). Δ = ω1−ω2, J the coupling;
+    anharmonicities are negative."""
+    delta = (f1_ghz - f2_ghz) * 1000
+    a1, a2 = anh1_mhz, anh2_mhz
+    if abs(delta - a2) < 1e-6 or abs(delta + a1) < 1e-6:
+        return 0.0
+    zeta = 2 * j_mhz * j_mhz * (1.0 / (delta - a2) - 1.0 / (delta + a1))
+    return zeta * 1000  # MHz → kHz
+
+
+def cpw_eps_eff(eps_sub: float) -> float:
+    """Effective permittivity of a coplanar waveguide on a substrate: ≈(εr+1)/2
+    (half the field is in vacuum)."""
+    return (eps_sub + 1.0) / 2.0
+
+
+def cpw_resonator_freq(length_um: float, eps_sub: float = 11.7, mode: str = "half") -> float:
+    """Fundamental resonance [GHz] of a CPW resonator of physical length l:
+    f = c / (m·l·√εeff), m=2 (half-wave) or 4 (quarter-wave). Paper §4.1."""
+    l = max(length_um, 1.0) * 1e-6
+    m = 2.0 if mode == "half" else 4.0
+    f = C_LIGHT / (m * l * math.sqrt(cpw_eps_eff(eps_sub)))
+    return f / 1e9
+
+
+def coupling_capacitance(overlap_um2: float, gap_um: float, eps_eff: float = 6.35) -> float:
+    """Geometry estimate of a coupling capacitance [fF] from overlap area and gap
+    (paper §4.1: C scales with overlap area / separation). Parallel-plate with an
+    effective permittivity averaging substrate and vacuum."""
+    area = max(overlap_um2, 0.0) * 1e-12
+    d = max(gap_um, 0.1) * 1e-6
+    return EPS0 * eps_eff * area / d * 1e15
 
 
 def t1_from_q(q: float, f01_ghz: float) -> float:

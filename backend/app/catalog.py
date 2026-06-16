@@ -70,15 +70,57 @@ COMPONENT_LIBRARY = [
     {"id": "tsv", "kind": "tsv", "name": "Through-Silicon Via", "category": "Chip", "color": "success",
      "description": "Vertical interconnect for 3D routing",
      "defaults": {"diameter_um": 20, "depth_um": 150, "material": "Copper"}},
+    # Qubits (more)
+    {"id": "tunable-transmon", "kind": "squid", "name": "Tunable Transmon", "category": "Qubits", "color": "primary",
+     "description": "SQUID-based frequency-tunable transmon",
+     "defaults": {"pad_width_um": 455, "pad_height_um": 90, "pad_gap_um": 30, "squid_loop_um2": 50,
+                  "junction_asymmetry": 0.0, "target_freq_GHz": 5.2, "anharmonicity_MHz": -310,
+                  "material": "Aluminum", "layer": 1}},
+    {"id": "gatemon", "kind": "transmon", "name": "Gatemon", "category": "Qubits", "color": "primary",
+     "description": "Voltage-tunable semiconductor-nanowire junction qubit",
+     "defaults": {"nanowire_length_nm": 200, "gate_voltage_V": 0.0, "target_freq_GHz": 5.0}},
+    # Couplers (more)
+    {"id": "tunable-coupler", "kind": "squid", "name": "Tunable Coupler", "category": "Couplers", "color": "violet",
+     "description": "Frequency-tunable coupler for in-situ ZZ control",
+     "defaults": {"loop_area_um2": 30, "idle_freq_GHz": 8.5, "on_g_MHz": 100, "off_g_MHz": 0.5}},
+    {"id": "coupled-line-tee", "kind": "coupler", "name": "Coupled-Line Tee", "category": "Couplers", "color": "violet",
+     "description": "Distributed feedline tap to a hanging resonator",
+     "defaults": {"coupling_length_um": 150, "coupling_gap_um": 5, "down_length_um": 50}},
+    {"id": "jj-array", "kind": "junction", "name": "Josephson Junction Array", "category": "Couplers", "color": "violet",
+     "description": "Superinductor / array for fluxonium & high-impedance lines",
+     "defaults": {"junction_count": 100, "junction_area_um2": 0.02, "array_L_nH": 200}},
+    # Readout / amplification (more)
+    {"id": "twpa", "kind": "parametric-amplifier", "name": "TWPA", "category": "Readout", "color": "success",
+     "description": "Traveling-wave parametric amplifier, broadband near-quantum-limited gain",
+     "defaults": {"gain_dB": 20, "bandwidth_GHz": 3.0, "cells": 2000, "phase_match_GHz": 6.0}},
+    {"id": "launchpad", "kind": "launchpad", "name": "Launchpad (Wirebond)", "category": "Readout", "color": "success",
+     "description": "Tapered CPW launch to a wirebond pad",
+     "defaults": {"pad_width_um": 300, "pad_height_um": 300, "taper_length_um": 300, "impedance_ohm": 50}},
+    # Chip / fab features (more)
+    {"id": "vacuum-gap-cap", "kind": "ground", "name": "Vacuum-Gap Capacitor", "category": "Chip", "color": "success",
+     "description": "Suspended plate capacitor — low dielectric participation",
+     "defaults": {"plate_area_um2": 4000, "gap_um": 2, "capacitance_fF": 18}},
+    {"id": "bandage", "kind": "airbridge", "name": "Bandage / Crossover", "category": "Chip", "color": "success",
+     "description": "Galvanic bandage joining junction leads to pads (loss reduction)",
+     "defaults": {"length_um": 12, "width_um": 6, "overlap_um": 3}},
+    {"id": "alignment-marker", "kind": "ground", "name": "Alignment Marker", "category": "Chip", "color": "success",
+     "description": "E-beam / optical alignment fiducial",
+     "defaults": {"size_um": 20, "type": "cross", "layer": 10}},
+    {"id": "dicing-lane", "kind": "ground", "name": "Dicing Lane", "category": "Chip", "color": "success",
+     "description": "Saw street / keep-out boundary",
+     "defaults": {"width_um": 200, "keepout_um": 200}},
 ]
 
 CONDUCTORS = [
-    {"id": "al", "name": "Aluminum", "conductivity_Sm": 3.8e7, "tcK": 1.2, "note": "Junction electrodes"},
-    {"id": "nb", "name": "Niobium", "conductivity_Sm": 6.6e6, "tcK": 9.3, "note": "Workhorse film"},
-    {"id": "tin", "name": "Titanium Nitride", "conductivity_Sm": 5.0e6, "tcK": 4.5, "note": "High kinetic inductance"},
-    {"id": "ta", "name": "Tantalum", "conductivity_Sm": 7.7e6, "tcK": 4.4, "note": "Record coherence"},
-    {"id": "au", "name": "Gold", "conductivity_Sm": 4.1e7, "tcK": 0, "note": "Normal-metal wirebond / GND"},
-    {"id": "cu", "name": "Copper", "conductivity_Sm": 5.96e7, "tcK": 0, "note": "Normal-metal packaging"},
+    {"id": "al", "name": "Aluminum", "conductivity_Sm": 3.8e7, "tcK": 1.2, "rho_n_uohm_cm": 2.7, "note": "Junction electrodes"},
+    {"id": "nb", "name": "Niobium", "conductivity_Sm": 6.6e6, "tcK": 9.3, "rho_n_uohm_cm": 15.0, "note": "Workhorse film"},
+    {"id": "tin", "name": "Titanium Nitride", "conductivity_Sm": 5.0e6, "tcK": 4.5, "rho_n_uohm_cm": 100.0, "note": "High kinetic inductance"},
+    {"id": "nbn", "name": "Niobium Nitride", "conductivity_Sm": 2.5e6, "tcK": 16.0, "rho_n_uohm_cm": 200.0, "note": "Very high Lk, high Tc"},
+    {"id": "nbtin", "name": "Niobium Titanium Nitride", "conductivity_Sm": 3.0e6, "tcK": 14.5, "rho_n_uohm_cm": 150.0, "note": "High-Lk, low-loss"},
+    {"id": "granal", "name": "Granular Aluminum", "conductivity_Sm": 1.0e5, "tcK": 1.8, "rho_n_uohm_cm": 800.0, "note": "Superinductor films"},
+    {"id": "ta", "name": "Tantalum", "conductivity_Sm": 7.7e6, "tcK": 4.4, "rho_n_uohm_cm": 13.0, "note": "Record coherence"},
+    {"id": "au", "name": "Gold", "conductivity_Sm": 4.1e7, "tcK": 0, "rho_n_uohm_cm": 2.2, "note": "Normal-metal wirebond / GND"},
+    {"id": "cu", "name": "Copper", "conductivity_Sm": 5.96e7, "tcK": 0, "rho_n_uohm_cm": 1.7, "note": "Normal-metal packaging"},
 ]
 
 SUBSTRATES = [
@@ -102,4 +144,56 @@ DRC_RULES = [
     {"id": "spacing", "name": "Qubit spacing", "value": 1200, "min": 800, "unit": "um"},
     {"id": "airbridge", "name": "Airbridge span", "value": 30, "min": 10, "max": 60, "unit": "um"},
     {"id": "keepout", "name": "Dicing keep-out", "value": 200, "min": 150, "unit": "um"},
+    {"id": "metal_density", "name": "Metal fill density", "value": 0.45, "min": 0.2, "max": 0.8, "unit": "ratio"},
+    {"id": "min_feature", "name": "Min feature size", "value": 2, "min": 1, "unit": "um"},
+    {"id": "bondpad", "name": "Wirebond pad size", "value": 300, "min": 100, "unit": "um"},
+    {"id": "layer_overlap", "name": "Inter-layer overlap", "value": 3, "min": 1, "unit": "um"},
+    {"id": "etch_bias", "name": "Etch bias compensation", "value": 0.1, "min": 0.0, "max": 0.5, "unit": "um"},
 ]
+
+# Fabrication process recipes — each step with the tolerance that drives yield.
+PROCESS_RECIPES = [
+    {"id": "nb-trilayer", "name": "Nb Trilayer (foundry)", "substrate": "si", "metal": "nb",
+     "steps": [
+         {"name": "Wafer clean (RCA/HF)", "tolerance_nm": 0, "purpose": "remove native oxide & organics"},
+         {"name": "Nb sputter deposition", "tolerance_nm": 5, "purpose": "200 nm base electrode"},
+         {"name": "Optical lithography", "tolerance_nm": 200, "purpose": "define CPW / pads"},
+         {"name": "Reactive-ion etch (SF6)", "tolerance_nm": 15, "purpose": "pattern transfer + etch bias"},
+         {"name": "Junction e-beam + double-angle Al", "tolerance_pct": 3.0, "purpose": "Manhattan junctions"},
+         {"name": "Bandage / airbridge", "tolerance_nm": 10, "purpose": "galvanic contact + crossovers"},
+         {"name": "Dice & package", "tolerance_nm": 0, "purpose": "singulate, wirebond"},
+     ]},
+    {"id": "ta-sapphire", "name": "Ta on Sapphire (high-coherence)", "substrate": "sapphire", "metal": "ta",
+     "steps": [
+         {"name": "Sapphire anneal", "tolerance_nm": 0, "purpose": "smooth surface"},
+         {"name": "Ta sputter @ high T (α-phase)", "tolerance_nm": 4, "purpose": "low-loss bcc Ta"},
+         {"name": "Optical lithography", "tolerance_nm": 200, "purpose": "define geometry"},
+         {"name": "Wet/dry etch + piranha clean", "tolerance_nm": 12, "purpose": "low surface TLS"},
+         {"name": "Al/AlOx junctions", "tolerance_pct": 3.0, "purpose": "Dolan/Manhattan"},
+     ]},
+    {"id": "tin-hi-lk", "name": "TiN High-Lₖ", "substrate": "si", "metal": "tin",
+     "steps": [
+         {"name": "ALD/sputter TiN", "tolerance_nm": 3, "purpose": "tune Tc / sheet Lk"},
+         {"name": "Lithography + etch", "tolerance_nm": 12, "purpose": "high-impedance lines"},
+         {"name": "Al junctions", "tolerance_pct": 4.0, "purpose": "qubit junctions"},
+     ]},
+]
+
+# Parameter specifications — unit / range / typical, for UI inputs & validation.
+PARAMETER_SPECS = {
+    "target_freq_GHz": {"unit": "GHz", "min": 0.1, "max": 12.0, "typical": 5.0, "group": "qubit"},
+    "anharmonicity_MHz": {"unit": "MHz", "min": -400, "max": -150, "typical": -310, "group": "qubit"},
+    "c_sigma_fF": {"unit": "fF", "min": 40, "max": 130, "typical": 80, "group": "qubit"},
+    "ic_nA": {"unit": "nA", "min": 5, "max": 60, "typical": 30, "group": "junction"},
+    "junction_width_nm": {"unit": "nm", "min": 100, "max": 400, "typical": 200, "group": "junction"},
+    "pad_gap_um": {"unit": "µm", "min": 4, "max": 60, "typical": 30, "group": "geometry"},
+    "pad_width_um": {"unit": "µm", "min": 100, "max": 700, "typical": 455, "group": "geometry"},
+    "fillet_radius_um": {"unit": "µm", "min": 2, "max": 120, "typical": 10, "group": "geometry"},
+    "length_um": {"unit": "µm", "min": 500, "max": 12000, "typical": 4200, "group": "resonator"},
+    "impedance_ohm": {"unit": "Ω", "min": 30, "max": 120, "typical": 50, "group": "resonator"},
+    "kappa_MHz": {"unit": "MHz", "min": 0.1, "max": 10, "typical": 1.2, "group": "readout"},
+    "coupling_MHz": {"unit": "MHz", "min": 10, "max": 300, "typical": 92, "group": "coupling"},
+    "thickness_nm": {"unit": "nm", "min": 20, "max": 400, "typical": 100, "group": "film"},
+    "junction_tolerance_pct": {"unit": "%", "min": 0.5, "max": 8.0, "typical": 3.0, "group": "fabrication"},
+    "spec_window_MHz": {"unit": "MHz", "min": 5, "max": 100, "typical": 15, "group": "fabrication"},
+}

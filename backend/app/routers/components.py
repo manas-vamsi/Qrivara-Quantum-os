@@ -1,7 +1,15 @@
 from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
 
-from ..catalog import COMPONENT_LIBRARY, CONDUCTORS, DRC_RULES, LOSS_INTERFACES, SUBSTRATES
+from ..catalog import (
+    COMPONENT_LIBRARY,
+    CONDUCTORS,
+    DRC_RULES,
+    LOSS_INTERFACES,
+    PARAMETER_SPECS,
+    PROCESS_RECIPES,
+    SUBSTRATES,
+)
 from ..db import get_session
 from ..models import CustomComponent, User
 from ..schemas import CustomComponentCreate
@@ -20,6 +28,8 @@ def list_components(session: Session = Depends(get_session)):
         "substrates": SUBSTRATES,
         "loss_interfaces": LOSS_INTERFACES,
         "drc_rules": DRC_RULES,
+        "process_recipes": PROCESS_RECIPES,
+        "parameter_specs": PARAMETER_SPECS,
     }
 
 
