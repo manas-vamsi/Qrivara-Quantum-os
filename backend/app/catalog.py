@@ -197,3 +197,32 @@ PARAMETER_SPECS = {
     "junction_tolerance_pct": {"unit": "%", "min": 0.5, "max": 8.0, "typical": 3.0, "group": "fabrication"},
     "spec_window_MHz": {"unit": "MHz", "min": 5, "max": 100, "typical": 15, "group": "fabrication"},
 }
+
+# Validated reference designs (SQuADDS-style): known-good parameter sets with
+# measured-vs-simulated values, usable as fab-ready starting points. Mirrors the
+# role of the SQuADDS database (LFL-Lab); can be wired to the live HF dataset later.
+VALIDATED_DESIGNS = [
+    {"id": "sq-xmon-5ghz", "name": "Xmon 5.0 GHz", "qubit": "transmon",
+     "target_freq_GHz": 5.0, "anharmonicity_MHz": -270,
+     "params": {"pad_width_um": 455, "pad_height_um": 90, "pad_gap_um": 30,
+                "c_sigma_fF": 85, "ic_nA": 28, "material": "Tantalum"},
+     "validated": {"measured_f01_GHz": 4.98, "measured_T1_us": 95, "yield_pct": 72},
+     "source": "SQuADDS-style reference (Ta/sapphire)"},
+    {"id": "sq-transmon-4_5ghz", "name": "Transmon 4.5 GHz (low-noise)", "qubit": "transmon",
+     "target_freq_GHz": 4.5, "anharmonicity_MHz": -240,
+     "params": {"pad_width_um": 500, "pad_height_um": 100, "pad_gap_um": 40,
+                "c_sigma_fF": 95, "ic_nA": 24, "material": "Tantalum"},
+     "validated": {"measured_f01_GHz": 4.47, "measured_T1_us": 120, "yield_pct": 80},
+     "source": "SQuADDS-style reference (large pads, low surface loss)"},
+    {"id": "sq-transmon-6ghz", "name": "Transmon 6.0 GHz (fast readout)", "qubit": "transmon",
+     "target_freq_GHz": 6.0, "anharmonicity_MHz": -300,
+     "params": {"pad_width_um": 420, "pad_height_um": 80, "pad_gap_um": 25,
+                "c_sigma_fF": 72, "ic_nA": 34, "material": "Niobium"},
+     "validated": {"measured_f01_GHz": 5.96, "measured_T1_us": 60, "yield_pct": 65},
+     "source": "SQuADDS-style reference (compact, higher freq)"},
+    {"id": "sq-fluxonium-0_5ghz", "name": "Fluxonium 0.5 GHz", "qubit": "fluxonium",
+     "target_freq_GHz": 0.5, "anharmonicity_MHz": 1200,
+     "params": {"EJ_GHz": 4.0, "EC_GHz": 1.0, "EL_GHz": 0.9, "junction_count": 100},
+     "validated": {"measured_f01_GHz": 0.52, "measured_T1_us": 320, "yield_pct": 55},
+     "source": "SQuADDS-style reference (high-coherence fluxonium)"},
+]

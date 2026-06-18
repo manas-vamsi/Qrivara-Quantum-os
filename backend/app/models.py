@@ -81,7 +81,8 @@ class SimulationJob(SQLModel, table=True):
 
 class OptimizationRun(SQLModel, table=True):
     id: str = Field(default_factory=uid, primary_key=True)
-    design_id: str = Field(foreign_key="design.id", index=True)
+    # Nullable: the standalone parameter optimizer is not tied to a saved design.
+    design_id: Optional[str] = Field(default=None, foreign_key="design.id", index=True, nullable=True)
     method: str = "bayesian"  # bayesian | genetic | gradient
     status: str = "running"
     objectives: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))

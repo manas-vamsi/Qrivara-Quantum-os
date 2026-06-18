@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, Play, Pause, RotateCcw, Target, Activity, ShieldAlert } from "lucide-react";
+import { Sparkles, Play, Pause, RotateCcw, Target, Activity, ShieldAlert, Brain, Lightbulb, AlertTriangle, CheckCircle2, ArrowRight } from "lucide-react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -29,9 +29,11 @@ import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Progress } from "@/components/ui/Progress";
-import { Slider, SegmentedControl, Field } from "@/components/ui/Form";
+import { Slider, SegmentedControl, Field, Select } from "@/components/ui/Form";
+import { useDataStore } from "@/store/useDataStore";
+import { useAppStore } from "@/store/useAppStore";
 import { CHART, axisProps, ChartTooltip } from "@/lib/chartTheme";
-import { OPT_OBJECTIVES, OPT_PARAMS, OPT_HISTORY, PARETO, OPT_ERRORS } from "@/data/mockData";
+import { OPT_OBJECTIVES, OPT_PARAMS, PARETO, OPT_ERRORS } from "@/data/mockData";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 
@@ -54,6 +56,10 @@ function closeness(o: (typeof OPT_OBJECTIVES)[number]) {
 export default function Optimization() {
   const [running, setRunning] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
+  // Real optimizer output (Nelder-Mead over C_Σ / Ic, exact transmon physics).
+  const [optHistory, setOptHistory] = useState<any[]>([]);
+  const [optPareto, setOptPareto] = useState<any[]>([]);
+  const [optBest, setOptBest] = useState<any>(null);
   const [params, setParams] = useState(
     Object.fromEntries(OPT_PARAMS.map((p) => [p.id, p.value])),
   );
@@ -140,17 +146,32 @@ export default function Optimization() {
     value: Math.round(closeness(o)),
   }));
 
-  const optimal = PARETO.filter((p) => !p.dominated);
-  const dominated = PARETO.filter((p) => p.dominated);
+  // Pareto front comes live from the backend once a run completes; fall back to
+  // the static sample only before the first run.
+  const paretoPts = optPareto.length ? optPareto : PARETO;
+  const optimal = paretoPts.filter((p: any) => !p.dominated);
+  const dominated = paretoPts.filter((p: any) => p.dominated);
 
   const toggleRun = async () => {
     if (!running) {
       setRunning(true);
+      setOptPareto([]); // drop any stale front while the new run computes
       try {
-        const res = await api.startOptimization({ ...params, method });
+        const res = await api.startOptimization({
+          ...params,
+          method,
+          target_freq_GHz: targetF,
+          target_anharm_MHz: targetAnh,
+        });
         setRunId(res.id);
+        setOptBest(res.best ?? null);
+        setOptHistory(res.history ?? []);
+        // pull the live Pareto front + EJ/EC region for this run
+        const full = await api.getOptimizationResults(res.id);
+        setOptPareto(full.pareto ?? []);
       } catch (err) {
         console.error(err);
+      } finally {
         setRunning(false);
       }
     } else {
@@ -171,7 +192,17 @@ export default function Optimization() {
         icon={<Sparkles className="h-5 w-5" />}
         actions={
           <>
-            <Button variant="outline" icon={<RotateCcw className="h-4 w-4" />} onClick={() => setRunning(false)}>
+            <Button
+              variant="outline"
+              icon={<RotateCcw className="h-4 w-4" />}
+              onClick={() => {
+                setRunning(false);
+                setRunId(null);
+                setOptBest(null);
+                setOptHistory([]);
+                setOptPareto([]);
+              }}
+            >
               Reset
             </Button>
             <Button
@@ -190,23 +221,26 @@ export default function Optimization() {
         <div className="flex flex-wrap items-center gap-x-8 gap-y-3 px-5 py-4">
           <Stat label="Status" value={
             <span className="flex items-center gap-2">
-              <StatusDot tone={running ? "cyan" : "neutral"} pulse={running} />
-              <span className={running ? "text-cyan" : "text-fg-muted"}>
-                {running ? "Optimizing…" : "Paused"}
+              <StatusDot tone={running ? "cyan" : optBest ? "success" : "neutral"} pulse={running} />
+              <span className={running ? "text-cyan" : optBest ? "text-success" : "text-fg-muted"}>
+                {running ? "Optimizing…" : optBest ? "Converged" : "Idle"}
               </span>
             </span>
           } />
           <Divider />
-          <Stat label="Iteration" value={<span className="font-mono">{running ? "60 / 200" : "0 / 200"}</span>} />
+          <Stat label="Iterations" value={<span className="font-mono">{optBest ? optBest.iterations : "—"}</span>} />
           <Divider />
-          <Stat label="Elapsed" value={<span className="font-mono">{running ? "4m 12s" : "0m 0s"}</span>} />
+          <Stat label="Best f₀₁" value={<span className="font-mono">{optBest ? `${optBest.f01_GHz} GHz` : "—"}</span>} />
           <Divider />
-          <Stat label="Best score" value={<span className="font-mono text-success">{running ? "0.0127" : "—"}</span>} />
+          <Stat label="Best score" value={<span className="font-mono text-success">{typeof optBest?.score === "number" ? optBest.score.toExponential(2) : "—"}</span>} />
           <div className="ml-auto hidden w-48 sm:block">
-            <Progress value={running ? 30 : 0} tone="violet" glow />
+            <Progress value={running ? 60 : optBest ? 100 : 0} tone="violet" glow />
           </div>
         </div>
       </Card>
+
+      {/* AI design advisor — reviews the selected project's reports */}
+      <AIAdvisor />
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Left */}
@@ -215,7 +249,7 @@ export default function Optimization() {
             <Header title="Convergence" subtitle="Loss & best score over iterations" />
             <CardContent className="pt-4">
               <ResponsiveContainer width="100%" height={280}>
-                <AreaChart data={running ? OPT_HISTORY : []} margin={{ top: 10, right: 10, left: -14, bottom: 0 }}>
+                <AreaChart data={optHistory.length ? optHistory : []} margin={{ top: 10, right: 10, left: -14, bottom: 0 }}>
                   <defs>
                     <linearGradient id="best-fill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={CHART.primary} stopOpacity={0.32} />
@@ -234,7 +268,7 @@ export default function Optimization() {
           </Card>
 
           <Card>
-            <Header title="Pareto Front" subtitle="ZZ crosstalk vs anharmonicity tradeoff" />
+            <Header title="Pareto Front" subtitle="Gate speed (coupling J) vs ZZ crosstalk" />
             <CardContent className="pt-4">
               <ResponsiveContainer width="100%" height={300}>
                 <ScatterChart margin={{ top: 10, right: 16, left: -6, bottom: 8 }}>
@@ -244,7 +278,7 @@ export default function Optimization() {
                     unit=" kHz"
                     label={{ value: "ZZ crosstalk (kHz)", position: "insideBottom", offset: -4, fill: CHART.axis, fontSize: 11 }}
                   />
-                  <YAxis type="number" dataKey="anharm" name="Anharm" {...axisProps} unit=" MHz" />
+                  <YAxis type="number" dataKey="j" name="Coupling J" {...axisProps} unit=" MHz" />
                   <ZAxis range={[60, 60]} />
                   <RTooltip content={<ChartTooltip />} cursor={{ strokeDasharray: "3 3" }} />
                   <Scatter name="Dominated" data={dominated} fill={CHART.axis} fillOpacity={0.35} />
@@ -553,4 +587,179 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
 
 function Divider() {
   return <div className="hidden h-8 w-px bg-line sm:block" />;
+}
+
+/* ─────────────────────────── AI Design Advisor ───────────────────────────── */
+const PRIORITY_TONE: Record<string, string> = {
+  critical: "text-error border-error/30 bg-error/10",
+  high: "text-warning border-warning/30 bg-warning/10",
+  medium: "text-cyan border-cyan/30 bg-cyan/10",
+  low: "text-fg-muted border-line bg-surface-2",
+};
+
+function AIAdvisor() {
+  const projects = useDataStore((s) => s.projects);
+  const fetchProjects = useDataStore((s) => s.fetchProjects);
+  const [projectId, setProjectId] = useState("");
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [report, setReport] = useState<any>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!projects.length) fetchProjects();
+    api.getAiStatus().then((s) => setConfigured(s.configured)).catch(() => setConfigured(false));
+  }, [projects.length, fetchProjects]);
+
+  useEffect(() => {
+    if (!projectId && projects.length) setProjectId(projects[0].id);
+  }, [projects, projectId]);
+
+  // keep the AI assistant aware of the project being reviewed
+  const setActiveProject = useAppStore((s) => s.setActiveProject);
+  useEffect(() => {
+    const p = projects.find((x) => x.id === projectId);
+    if (p) setActiveProject(p.id, p.name);
+  }, [projectId, projects, setActiveProject]);
+
+  const analyze = async () => {
+    if (!projectId) return;
+    setLoading(true); setError(""); setReport(null);
+    try {
+      const res = await api.analyzeProjectAI(projectId);
+      setReport(res.report);
+    } catch (e: any) {
+      setError(e?.message || "AI analysis failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+        <div className="flex items-center gap-2.5">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-violet/15 text-violet">
+            <Brain className="h-4.5 w-4.5" />
+          </span>
+          <div>
+            <h3 className="flex items-center gap-2 font-display text-[0.95rem] font-semibold tracking-tight">
+              AI Design Advisor <Badge tone="violet">AI</Badge>
+            </h3>
+            <p className="text-xs text-fg-subtle">
+              Reviews the project's reports — what's lacking & how to lift yield/efficiency.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-48">
+            <Select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              {projects.length === 0 && <option value="">No projects</option>}
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </Select>
+          </div>
+          <Button
+            icon={<Sparkles className="h-4 w-4" />}
+            loading={loading}
+            disabled={!projectId || configured === false}
+            onClick={analyze}
+          >
+            Analyze
+          </Button>
+        </div>
+      </div>
+
+      <CardContent className="pt-4">
+        {configured === false && (
+          <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+            <AlertTriangle className="h-4 w-4" /> AI advisor is not configured on the server.
+          </div>
+        )}
+        {error && (
+          <div className="flex items-center gap-2 rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-xs text-error">
+            <AlertTriangle className="h-4 w-4" /> {error}
+          </div>
+        )}
+        {loading && (
+          <p className="py-8 text-center text-sm text-fg-subtle">
+            Analyzing the design reports…
+          </p>
+        )}
+        {!loading && !report && !error && configured !== false && (
+          <p className="py-8 text-center text-sm text-fg-subtle">
+            Select a project and click <span className="font-medium text-fg">Analyze</span> for an AI design review.
+          </p>
+        )}
+
+        {report && (
+          <div className="space-y-5">
+            <div className="rounded-xl border border-violet/20 bg-violet/5 p-4">
+              <p className="text-sm leading-relaxed text-fg">{report.summary}</p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <ListBlock icon={<CheckCircle2 className="h-4 w-4 text-success" />} title="Strengths" items={report.strengths} tone="success" />
+              <ListBlock icon={<AlertTriangle className="h-4 w-4 text-warning" />} title="What's lacking" items={report.lacking} tone="warning" />
+            </div>
+
+            <div>
+              <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-fg">
+                <Lightbulb className="h-4 w-4 text-cyan" /> Recommendations
+              </p>
+              <div className="space-y-2">
+                {(report.recommendations || []).map((r: any, i: number) => (
+                  <div key={i} className="rounded-xl border border-line bg-surface-2 p-3">
+                    <div className="flex items-center gap-2">
+                      <span className={cn("rounded-md border px-2 py-0.5 text-2xs font-semibold uppercase", PRIORITY_TONE[(r.priority || "").toLowerCase()] || PRIORITY_TONE.low)}>
+                        {r.priority}
+                      </span>
+                      <span className="text-xs font-medium text-fg-muted">{r.area}</span>
+                    </div>
+                    <p className="mt-1.5 text-sm text-fg">{r.action}</p>
+                    {r.impact && <p className="mt-1 text-xs text-fg-subtle">→ {r.impact}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {report.next_steps?.length > 0 && (
+              <div>
+                <p className="mb-2 text-sm font-semibold text-fg">Next steps</p>
+                <ul className="space-y-1.5">
+                  {report.next_steps.map((s: string, i: number) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-fg-muted">
+                      <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" /> {s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {report.yield_outlook && (
+              <div className="rounded-xl border border-line bg-surface-2 p-4">
+                <p className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">Yield outlook</p>
+                <p className="mt-1 text-sm text-fg">{report.yield_outlook}</p>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ListBlock({ icon, title, items, tone }: { icon: React.ReactNode; title: string; items?: string[]; tone: string }) {
+  return (
+    <div className={cn("rounded-xl border p-4", tone === "success" ? "border-success/20 bg-success/5" : "border-warning/20 bg-warning/5")}>
+      <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-fg">{icon} {title}</p>
+      <ul className="space-y-1.5">
+        {(items || []).map((s, i) => (
+          <li key={i} className="text-sm text-fg-muted">• {s}</li>
+        ))}
+        {(!items || items.length === 0) && <li className="text-xs text-fg-subtle">None reported.</li>}
+      </ul>
+    </div>
+  );
 }

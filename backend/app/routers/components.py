@@ -9,6 +9,7 @@ from ..catalog import (
     PARAMETER_SPECS,
     PROCESS_RECIPES,
     SUBSTRATES,
+    VALIDATED_DESIGNS,
 )
 from ..db import get_session
 from ..models import CustomComponent, User
@@ -30,7 +31,15 @@ def list_components(session: Session = Depends(get_session)):
         "drc_rules": DRC_RULES,
         "process_recipes": PROCESS_RECIPES,
         "parameter_specs": PARAMETER_SPECS,
+        "validated_designs": VALIDATED_DESIGNS,
     }
+
+
+@router.get("/validated-designs")
+def validated_designs():
+    """SQuADDS-style validated reference designs — fab-ready starting points with
+    measured-vs-simulated values."""
+    return VALIDATED_DESIGNS
 
 
 @router.post("/custom", status_code=201)

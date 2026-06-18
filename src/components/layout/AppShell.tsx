@@ -5,6 +5,7 @@ import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { CommandPalette } from "./CommandPalette";
 import { NewDesignModal } from "./NewDesignModal";
+import { ChatbotWidget } from "./ChatbotWidget";
 import { useAppStore, applyTheme } from "@/store/useAppStore";
 
 export function AppShell() {
@@ -55,6 +56,7 @@ export function AppShell() {
 
       <CommandPalette />
       <NewDesignModal />
+      <ChatbotWidget />
     </div>
   );
 }

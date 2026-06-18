@@ -38,7 +38,12 @@ def export_design(design_id: str, fmt: str, session: Session = Depends(get_sessi
     if not spec:
         raise HTTPException(400, f"Unknown design format '{fmt}'. Use: {list(X.DESIGN_FORMATS)}")
     doc = design.doc or {"nodes": [], "edges": []}
-    content = X.design_to_gds(doc) if fmt == "gds" else X.design_to_dxf(doc)
+    if fmt == "gds":
+        content = X.design_to_gds(doc)
+    elif fmt == "drc":
+        content = X.design_to_drc(doc)
+    else:
+        content = X.design_to_dxf(doc)
     return _download(content, spec["media"], f"{design_id}.{spec['ext']}")
 
 

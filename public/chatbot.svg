@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="qr-chat" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C8803A"/>
+      <stop offset="0.55" stop-color="#E0B255"/>
+      <stop offset="1" stop-color="#B47CF0"/>
+    </linearGradient>
+  </defs>
+  <!-- speech bubble with tail -->
+  <path d="M16 7 H48 a10 10 0 0 1 10 10 V33 a10 10 0 0 1 -10 10 H27 l-9 9 v-9 h-2 a10 10 0 0 1 -10 -10 V17 a10 10 0 0 1 10 -10 Z"
+        fill="#C8803A14" stroke="url(#qr-chat)" stroke-width="2.6" stroke-linejoin="round"/>
+  <!-- QRIVARA atom mark -->
+  <circle cx="32" cy="25" r="10" stroke="url(#qr-chat)" stroke-width="2.3" fill="none"/>
+  <ellipse cx="32" cy="25" rx="10" ry="4.1" stroke="url(#qr-chat)" stroke-width="1.7" fill="none" transform="rotate(45 32 25)"/>
+  <circle cx="32" cy="25" r="2.9" fill="url(#qr-chat)"/>
+</svg>

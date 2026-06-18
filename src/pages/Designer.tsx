@@ -226,7 +226,7 @@ function generateMetalCode(nodes: Node[], edges: Edge[]): string {
   return `"""Auto-generated from the QRIVARA Visual Designer (${nodes.length} components)."""\nfrom qiskit_metal import designs, MetalGUI, Dict\n${imports}\n\n${body.join("\n")}\n`;
 }
 
-type LogLine = { k: "prompt" | "info" | "ok"; t: string };
+type LogLine = { k: "prompt" | "info" | "ok" | "warn"; t: string };
 
 function DesignerCanvas() {
   const storeComps = useDataStore((s) => s.components);
@@ -238,8 +238,8 @@ function DesignerCanvas() {
   const projectId = searchParams.get("projectId");
   const isNew = searchParams.get("new") === "1";
   
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [version, setVersion] = useState(0);
   const [loading, setLoading] = useState(!!(designId || projectId));
   const [activeDesignId, setActiveDesignId] = useState<string | null>(designId);
@@ -644,7 +644,10 @@ function DesignerCanvas() {
                   <div
                     key={i}
                     className={
-                      l.k === "prompt" ? "text-primary" : l.k === "ok" ? "text-success" : "text-fg-muted"
+                      l.k === "prompt" ? "text-primary"
+                        : l.k === "ok" ? "text-success"
+                        : l.k === "warn" ? "text-warning"
+                        : "text-fg-muted"
                     }
                   >
                     {l.t}

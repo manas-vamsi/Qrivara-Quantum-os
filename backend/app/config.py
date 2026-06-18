@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     ]
     # When set, the API verifies Supabase JWTs (prod). Empty = dev mode (demo user).
     supabase_jwt_secret: str | None = None
+    # LLM provider keys for the AI assistant. Read server-side ONLY — never
+    # returned to the frontend. The assistant tries providers in latency-first
+    # order (Groq → Gemini → OpenRouter) with automatic fallback.
+    gemini_api_key: str | None = None
+    groq_api_key: str | None = None
+    openrouter_api_key: str | None = None
 
 
 settings = Settings()

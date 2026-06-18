@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .db import init_db
 from .routers import (
+    ai,
     auth,
     codegen,
     collaboration,
@@ -58,7 +59,7 @@ app.add_middleware(
 
 for module in (
     auth, projects, designs, components, materials, simulations,
-    codegen, optimization, results, experiments, collaboration, search, export,
+    codegen, optimization, results, experiments, collaboration, search, export, ai,
 ):
     app.include_router(module.router)
 

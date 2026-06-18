@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
 export const api = {
   baseUrl: API_BASE,
@@ -32,13 +32,39 @@ export const api = {
     if (!res.ok) throw new Error("Conflict or error saving design");
     return res.json();
   },
-  runSimulation: async (designId: string, type: string, solver: string, params: any) => {
-    const res = await fetch(`${API_BASE}/designs/${designId}/simulations`, {
+  getSimulationJob: async (jobId: string) => {
+    const res = await fetch(`${API_BASE}/simulations/${jobId}`);
+    return res.json();
+  },
+  // Submit a job (backend returns 202 + a queued job), then poll the status
+  // endpoint until the background worker finishes. Resolves to the completed
+  // job (status "done" with .result, or "failed"/"canceled"). Callers can keep
+  // checking `job.status === "done"` exactly as before — the wait is internal.
+  runSimulation: async (
+    designId: string,
+    type: string,
+    solver: string,
+    params: any,
+    opts: { intervalMs?: number; timeoutMs?: number } = {},
+  ) => {
+    const { intervalMs = 400, timeoutMs = 120000 } = opts;
+    const submitRes = await fetch(`${API_BASE}/designs/${designId}/simulations`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type, solver, params }),
     });
-    return res.json();
+    if (!submitRes.ok) throw new Error(`Simulation submit failed (${submitRes.status})`);
+    let job = await submitRes.json();
+    if (!job?.id) throw new Error(job?.detail || "Simulation submit failed");
+    const deadline = Date.now() + timeoutMs;
+    while (job.status === "queued" || job.status === "running") {
+      if (Date.now() > deadline) throw new Error("Simulation timed out");
+      await new Promise((r) => setTimeout(r, intervalMs));
+      const res = await fetch(`${API_BASE}/simulations/${job.id}`);
+      if (!res.ok) throw new Error(`Simulation status check failed (${res.status})`);
+      job = await res.json();
+    }
+    return job;
   },
   getComponents: async () => {
     const res = await fetch(`${API_BASE}/components/`);
@@ -111,5 +137,60 @@ export const api = {
     });
     if (!res.ok) throw new Error("Yield analysis failed");
     return res.json();
+  },
+  getAiStatus: async () => {
+    const res = await fetch(`${API_BASE}/ai/status`);
+    return res.json();
+  },
+  analyzeProjectAI: async (projectId: string) => {
+    const res = await fetch(`${API_BASE}/ai/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: projectId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "AI analysis failed");
+    }
+    return res.json();
+  },
+  aiChat: async (
+    messages: { role: string; content: string }[],
+    opts?: { page?: string; projectId?: string | null },
+  ) => {
+    const res = await fetch(`${API_BASE}/ai/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, page: opts?.page, project_id: opts?.projectId ?? undefined }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Chat failed");
+    }
+    return res.json();
+  },
+  /** Streaming chat — calls onDelta(textChunk) as tokens arrive. */
+  aiChatStream: async (
+    messages: { role: string; content: string }[],
+    opts: { page?: string; projectId?: string | null } | undefined,
+    onDelta: (chunk: string) => void,
+  ) => {
+    const res = await fetch(`${API_BASE}/ai/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, page: opts?.page, project_id: opts?.projectId ?? undefined }),
+    });
+    if (!res.ok || !res.body) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Chat failed");
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      if (chunk) onDelta(chunk);
+    }
   },
 };

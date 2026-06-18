@@ -1,23 +1,114 @@
 import math
 
+import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
+from scipy.optimize import minimize
 from sqlmodel import Session, select
 
 from .. import physics
 from ..db import get_session
 from ..models import OptimizationRun
-from ..schemas import InverseDesignRequest, OptimizationCreate, YieldRequest
+from ..schemas import InverseDesignRequest, OptimizationCreate, YieldRequest, reject_nonfinite
 
 router = APIRouter(prefix="/optimization", tags=["optimization"])
 
 
+def _num(d: dict, *keys, default):
+    """First present, *finite* numeric value among keys (frontend uses several
+    names). Rejects NaN/±Inf — float('inf'/'nan') would otherwise flow into the
+    objective and poison the JSON columns / response (Postgres rejects non-finite
+    JSON; strict parsers reject bare NaN/Infinity)."""
+    for k in keys:
+        v = d.get(k)
+        if v is not None:
+            try:
+                f = float(v)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(f):
+                return f
+    return float(default)
+
+
 @router.post("/start", status_code=201)
 def start(body: OptimizationCreate, session: Session = Depends(get_session)):
-    design_id = str(body.params.get("design_id", "demo"))
-    history = [{"iter": i + 1, "best": round(0.9 * math.exp(-i / 11) + 0.012, 4)} for i in range(40)]
+    """Real multi-objective optimization of transmon design parameters.
+
+    Minimizes a weighted objective (frequency error + anharmonicity error) over
+    the physical device parameters (qubit capacitance C_Σ and junction critical
+    current Ic) using a derivative-free Nelder-Mead search. Each f01/anharmonicity
+    is computed from the exact charge-basis transmon diagonalization — so the
+    convergence curve and the optimum are genuine, not scripted.
+    """
+    p = body.params or {}
+    reject_nonfinite(p)  # non-finite values would poison the persisted JSON columns
+    # Only attach to a design if it actually exists; otherwise this is a
+    # standalone parameter optimization (no FK).
+    from ..models import Design
+    raw_id = p.get("design_id")
+    design_id = raw_id if (raw_id and session.get(Design, str(raw_id))) else None
+    f_target = _num(p, "target_freq_GHz", "targetF", default=5.1)
+    anh_target = _num(p, "target_anharm_MHz", "targetAnh", default=-300.0)
+    w_anh = _num(p, "anh_weight", default=0.25)
+
+    # Physical search box: C_Σ ∈ [5,400] fF, Ic ∈ [1,200] nA. Bounds keep the
+    # simplex feasible, so the objective never sees a nonsensical junction and
+    # the convergence curve has no sentinel spikes.
+    bounds = [(5.0, 400.0), (1.0, 200.0)]
+
+    def objective(x) -> float:
+        c = min(max(float(x[0]), bounds[0][0]), bounds[0][1])
+        ic = min(max(float(x[1]), bounds[1][0]), bounds[1][1])
+        ej = physics.ej_from_ic(ic)
+        ec = physics.ec_from_capacitance(c)
+        f, anh = physics.transmon_f01_anharm(ej, ec)
+        fe = (f - f_target) / f_target
+        ae = (anh - anh_target) / anh_target if anh_target else 0.0
+        return fe * fe + w_anh * ae * ae
+
+    x0 = np.array([
+        min(max(_num(p, "c_sigma_fF", default=95.0), bounds[0][0]), bounds[0][1]),
+        min(max(_num(p, "ic_nA", default=33.0), bounds[1][0]), bounds[1][1]),
+    ])
+    history: list[dict] = []
+    best = [float("inf")]
+
+    def record(x):
+        loss = objective(x)
+        best[0] = min(best[0], loss)
+        history.append({"iter": len(history) + 1, "loss": round(loss, 6), "best": round(best[0], 6)})
+
+    record(x0)                              # iteration 0 (starting point)
+    res = minimize(objective, x0, method="Nelder-Mead", bounds=bounds, callback=record,
+                   options={"maxiter": 120, "xatol": 1e-3, "fatol": 1e-8})
+
+    c_opt = min(max(float(res.x[0]), bounds[0][0]), bounds[0][1])
+    ic_opt = min(max(float(res.x[1]), bounds[1][0]), bounds[1][1])
+    ej = physics.ej_from_ic(ic_opt)
+    ec = physics.ec_from_capacitance(c_opt)
+    f, anh = physics.transmon_f01_anharm(ej, ec)
+    best_payload = {
+        # min(res.fun, best-seen) so the reported score never exceeds the
+        # convergence curve's final 'best' value.
+        "score": round(min(float(res.fun), best[0]), 6),
+        "iterations": len(history),
+        "c_sigma_fF": round(c_opt, 2),
+        "ic_nA": round(ic_opt, 3),
+        "f01_GHz": round(f, 4),
+        "anharmonicity_MHz": round(anh, 1),
+        "EJ_GHz": round(ej, 3),
+        "EC_MHz": round(ec * 1000, 1),
+        "target_f01_GHz": f_target,
+        "target_anharm_MHz": anh_target,
+    }
+    objectives = (
+        {name: True for name in body.objectives}
+        if isinstance(body.objectives, list)
+        else dict(body.objectives)
+    )
     run = OptimizationRun(
-        design_id=design_id, method=body.method, objectives=body.objectives,
-        params=body.params, status="running", best={"score": history[-1]["best"]}, history=history,
+        design_id=design_id, method=body.method, objectives=objectives,
+        params=p, status="complete", best=best_payload, history=history,
     )
     session.add(run)
     session.commit()
@@ -144,14 +235,27 @@ def ej_ec_region():
 
 
 def _pareto():
-    import random
+    """Real gate-speed vs ZZ-crosstalk trade-off for a coupled transmon pair.
 
-    rng = random.Random(42)
+    The canonical transmon-coupler tension: a stronger exchange coupling J gives
+    a faster two-qubit gate (gate rate ∝ J) but raises the static ZZ error
+    (ζ ∝ J², from second-order perturbation theory, `physics.zz_interaction`).
+    For each J we also sweep the qubit–qubit detuning Δ, which reshapes ζ at fixed
+    J. A point is Pareto-optimal when no other point has both higher coupling
+    (faster gate) AND lower ZZ crosstalk. anh = −300 MHz, f1 = 5.0 GHz.
+    """
+    f1, anh = 5.0, -300.0
     pts = []
-    for i in range(28):
-        pts.append({
-            "zz": round(40 + i * 4 + rng.random() * 8, 1),
-            "anharm": round(200 - 3.0 * i + rng.random() * 20, 1),
-            "dominated": rng.random() > 0.62,
-        })
+    for j in (3, 5, 7, 10, 13, 17, 22, 28):                 # exchange coupling (MHz)
+        for det in (0.04, 0.07, 0.12, 0.20):                # detuning Δ (GHz), clear of ±α poles
+            zz_khz = abs(physics.zz_interaction(f1, f1 + det, anh, anh, float(j)))
+            pts.append({"zz": round(zz_khz, 1), "j": float(j),
+                        "detuning_MHz": round(det * 1000, 0)})
+    # dominance: higher j (faster gate) is better, lower zz is better
+    for p in pts:
+        p["dominated"] = any(
+            (q["j"] >= p["j"] and q["zz"] <= p["zz"])
+            and (q["j"] > p["j"] or q["zz"] < p["zz"])
+            for q in pts
+        )
     return pts
