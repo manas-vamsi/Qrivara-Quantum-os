@@ -16,12 +16,17 @@ interface AppState {
   commandOpen: boolean;
   newDesignOpen: boolean;
   profile: Profile;
+  /** Project the user is currently focused on — shared so the AI assistant
+   *  knows which project to reason about without being told. */
+  activeProjectId: string | null;
+  activeProjectName: string | null;
   toggleTheme: () => void;
   setTheme: (t: Theme) => void;
   toggleSidebar: () => void;
   setCommandOpen: (open: boolean) => void;
   setNewDesignOpen: (open: boolean) => void;
   setProfile: (p: Profile) => void;
+  setActiveProject: (id: string | null, name?: string | null) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -31,6 +36,8 @@ export const useAppStore = create<AppState>()(
       sidebarCollapsed: false,
       commandOpen: false,
       newDesignOpen: false,
+      activeProjectId: null,
+      activeProjectName: null,
       profile: {
         name: "Karthik Nair",
         email: "karthik@nexvista.com",
@@ -45,6 +52,8 @@ export const useAppStore = create<AppState>()(
       setCommandOpen: (commandOpen) => set({ commandOpen }),
       setNewDesignOpen: (newDesignOpen) => set({ newDesignOpen }),
       setProfile: (profile) => set({ profile }),
+      setActiveProject: (activeProjectId, activeProjectName = null) =>
+        set({ activeProjectId, activeProjectName }),
     }),
     {
       name: "qrivara-ui",

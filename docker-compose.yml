@@ -1,0 +1,41 @@
+# ── QRIVARA local/prod-like stack: Postgres + FastAPI backend ────────────────
+# Usage:
+#   1. cp backend/.env.example backend/.env   (fill in LLM keys; leave DATABASE_URL,
+#      it is overridden below to point at the `db` service)
+#   2. docker compose up --build
+#   3. backend -> http://localhost:8000   (docs at /docs when ENVIRONMENT=development)
+#
+# The frontend is built/served separately (Vite static build on Cloudflare/Vercel,
+# pointed at the backend via VITE_API_BASE). See DEPLOY.md.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: qrivara
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d qrivara"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Not published by default — only the backend needs it. Uncomment to inspect:
+    # ports: ["5432:5432"]
+
+  backend:
+    build: ./backend
+    env_file: ./backend/.env
+    environment:
+      # Override so the app talks to the compose Postgres regardless of .env.
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/qrivara
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:

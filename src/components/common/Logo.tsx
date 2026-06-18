@@ -62,6 +62,47 @@ export function LogoMark({
   );
 }
 
+/** Chatbot avatar — the QRIVARA atom mark inside a speech bubble. Use for the
+ *  AI assistant launcher / message avatar. Theme-aware (uses brand CSS vars). */
+export function ChatbotMark({
+  size = 40,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 64 64"
+      fill="none"
+      className={cn("shrink-0", className)}
+      aria-hidden
+    >
+      <defs>
+        <linearGradient id="qr-chat" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+          <stop stopColor="rgb(var(--primary))" />
+          <stop offset="0.55" stopColor="rgb(var(--cyan))" />
+          <stop offset="1" stopColor="rgb(var(--violet))" />
+        </linearGradient>
+      </defs>
+      {/* speech bubble with a tail at the bottom-left */}
+      <path
+        d="M16 7 H48 a10 10 0 0 1 10 10 V33 a10 10 0 0 1 -10 10 H27 l-9 9 v-9 h-2 a10 10 0 0 1 -10 -10 V17 a10 10 0 0 1 10 -10 Z"
+        fill="rgb(var(--primary) / 0.08)"
+        stroke="url(#qr-chat)"
+        strokeWidth="2.6"
+        strokeLinejoin="round"
+      />
+      {/* atom mark, centred in the bubble */}
+      <circle cx="32" cy="25" r="10" stroke="url(#qr-chat)" strokeWidth="2.3" fill="none" />
+      <ellipse cx="32" cy="25" rx="10" ry="4.1" stroke="url(#qr-chat)" strokeWidth="1.7" fill="none" transform="rotate(45 32 25)" />
+      <circle cx="32" cy="25" r="2.9" fill="url(#qr-chat)" />
+    </svg>
+  );
+}
+
 export function Logo({
   collapsed,
   className,

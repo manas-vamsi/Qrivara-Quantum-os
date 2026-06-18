@@ -34,9 +34,10 @@ SIMULATION_TYPES = {
     },
     "decoherence": {
         "label": "Decoherence Modeling",
-        "question": "What are the T1/T2 times based on surface losses?",
-        "engine": "Surface loss participation model",
-        "outputs": ["T1_dielectric_us", "T1_purcell_us", "T2_echo_us", "TLS_limit_us"],
+        "question": "What are the T1/T2 times across all loss channels?",
+        "engine": "dielectric + Purcell + quasiparticle T1; photon-shot + flux 1/f dephasing",
+        "outputs": ["T1_dielectric_us", "T1_purcell_us", "T1_quasiparticle_us",
+                    "T1_total_us", "T2_ramsey_us", "T2_echo_us", "TLS_limit_us"],
     },
     "zz_crosstalk": {
         "label": "ZZ Crosstalk Matrix",
@@ -92,6 +93,36 @@ SIMULATION_TYPES = {
         "engine": "Matis-Bardeen model estimate",
         "outputs": ["lk_sheet_pH", "lk_total_nH", "freq_shift_pct"],
     },
+    "lom": {
+        "label": "LOM (Lumped Oscillator Model)",
+        "question": "What Hamiltonian does the layout's extracted capacitance produce?",
+        "engine": "FEM capacitance matrix → EC/EJ → spectrum (Minev 2021)",
+        "outputs": ["qubits", "couplings", "source"],
+    },
+    "eigenmode": {
+        "label": "Eigenmode (FEM)",
+        "question": "What are the device's coupled normal-mode frequencies?",
+        "engine": "FEM capacitance + Josephson L → LC eigenproblem",
+        "outputs": ["modes", "n_modes"],
+    },
+    "circuit_graph": {
+        "label": "Circuit Graph",
+        "question": "What lumped-element circuit does the layout reduce to?",
+        "engine": "layout → nodes/branches (junctions, capacitors) + SPICE netlist",
+        "outputs": ["nodes", "branches", "spice_netlist"],
+    },
+    "crosstalk": {
+        "label": "Classical Crosstalk",
+        "question": "How much does a signal on one qubit leak to its neighbours?",
+        "engine": "FEM capacitance → ξ_ij = C_ij/C_jj (paper §4.2)",
+        "outputs": ["labels", "crosstalk_dB", "worst_dB", "worst_pair"],
+    },
+    "feedback": {
+        "label": "Measurement Feedback",
+        "question": "How do measured values compare to simulation, and how to recalibrate?",
+        "engine": "sim (LOM) vs measured → deltas + Ic recalibration (paper §7)",
+        "outputs": ["comparison", "mean_abs_delta_f01_MHz"],
+    },
     # Direct physics-engine calls (used by the designer's quick analyses).
     "design_errors": {
         "label": "Error Budget", "question": "What limits this design's fidelity?",
@@ -100,6 +131,25 @@ SIMULATION_TYPES = {
     "fluxonium_levels": {
         "label": "Fluxonium Spectrum", "question": "What is the fluxonium energy spectrum?",
         "engine": "numerical diagonalization", "outputs": ["levels"],
+    },
+    "gate_fidelity": {
+        "label": "Gate Fidelity",
+        "question": "What 1Q/2Q gate fidelity does the coherence budget allow?",
+        "engine": "coherence-limited gate error (Abad 2022; Krantz 2019 §VI)",
+        "outputs": ["fidelity_1q_pct", "fidelity_2q_pct", "error_1q", "error_2q", "T1_us", "T2_us"],
+    },
+    "readout": {
+        "label": "Dispersive Readout",
+        "question": "What single-shot readout SNR and assignment fidelity are achievable?",
+        "engine": "dispersive SNR + assignment fidelity (Gambetta 2007; Krantz 2019 §V-C)",
+        "outputs": ["snr", "assignment_fidelity_pct", "separation_error", "chi_MHz"],
+    },
+    "qec": {
+        "label": "Error Correction (Surface Code)",
+        "question": "How many physical qubits per logical qubit at a target error?",
+        "engine": "surface-code logical error + Λ (Fowler 2012; Google 2023/2024)",
+        "outputs": ["p_phys", "p_logical", "distance", "lambda",
+                    "physical_qubits_per_logical", "distance_table"],
     },
 }
 
@@ -133,8 +183,11 @@ def run_job(job: SimulationJob, design: Design) -> dict:
     fn = {
         "validation": lambda: _validation(nodes, edges),
         "epr": lambda: _epr(nodes, p),
-        "scattering": lambda: _scattering(p),
+        "scattering": lambda: _scattering(p, nodes),
         "decoherence": lambda: _decoherence(p),
+        "gate_fidelity": lambda: _gate_fidelity(p),
+        "readout": lambda: _readout(p),
+        "qec": lambda: _qec(p),
         "zz_crosstalk": lambda: _zz_crosstalk(nodes, p),
         "frequency": lambda: _frequency(p, nodes),
         "capacitance": lambda: _capacitance(nodes, p),
@@ -144,6 +197,11 @@ def run_job(job: SimulationJob, design: Design) -> dict:
         "mesh": lambda: _mesh(nodes, edges, p),
         "fabrication": lambda: _fabrication(p),
         "kinetic_inductance": lambda: _kinetic_inductance(p),
+        "lom": lambda: _lom(nodes, p),
+        "eigenmode": lambda: _eigenmode(nodes, p),
+        "circuit_graph": lambda: _circuit_graph(nodes, edges, p),
+        "crosstalk": lambda: _crosstalk(nodes, p),
+        "feedback": lambda: _feedback(nodes, p),
         "design_errors": lambda: physics.design_errors(
             float(p.get("ej", 14.0)), float(p.get("ec", 0.24)), tunable=bool(p.get("tunable", False))
         ),
@@ -217,40 +275,292 @@ def _frequency(p: dict, nodes: list | None = None) -> dict:
             "s21_curve": curve, "convergence": convergence, "method": method}
 
 
-# ── 3. CAPACITANCE — electrostatic estimate → Maxwell matrix ───────────────
+# ── 3. CAPACITANCE — real 2D electrostatic FEM → Maxwell matrix ────────────
 def _capacitance(nodes: list, p: dict | None = None) -> dict:
-    """Maxwell matrix from the layout: each island's self-capacitance from its pad
-    geometry (or c_sigma param); mutual terms scale as overlap-area / centre-to-
-    centre distance (paper §4.1). Analytic geometry estimate, not full FEM."""
-    qubits = [n for n in nodes if (n.get("data", {}) or {}).get("kind") == "transmon"][:6]
+    """Maxwell capacitance matrix from a genuine field solve. Builds conductor
+    rectangles from the transmon pads and runs the 2-D quasi-static electrostatic
+    FEM solver (app.fem) — each island energised, ground plane across the gap.
+    Falls back to an analytic geometry estimate if the solver is unavailable."""
+    qubits = [n for n in nodes if (n.get("data", {}) or {}).get("kind") == "transmon"][:8]
     if not qubits:
         return {"labels": ["Q1", "Q2", "Gnd"], "method": "default (no transmons in layout)",
                 "maxwell_matrix_fF": [[80, 2, 60], [2, 80, 60], [60, 60, 320]],
                 "self_capacitance": [80, 80, 320]}
 
-    def self_c(node):
-        d = (node.get("data", {}) or {}).get("params", {}) or {}
-        if d.get("c_sigma_fF"):
-            return float(d["c_sigma_fF"])
-        w = float(d.get("pad_width_um", 455)); h = float(d.get("pad_height_um", 90))
-        gap = float(d.get("pad_gap_um", 30))
-        return round(physics.coupling_capacitance(w * h, gap) + 40.0, 1)
+    eps_sub = float((p or {}).get("eps_substrate", 11.7))
+    eps_eff = (eps_sub + 1.0) / 2.0
+    conductors = []
+    for i, q in enumerate(qubits):
+        d = (q.get("data", {}) or {}).get("params", {}) or {}
+        pos = q.get("position", {}) or {}
+        conductors.append({
+            "label": f"Q{i+1}",
+            "x": float(pos.get("x", i * 650)), "y": float(pos.get("y", 0)),
+            "w": float(d.get("pad_width_um", 455)), "h": float(d.get("pad_height_um", 90)),
+            "gap": float(d.get("pad_gap_um", 30)),
+        })
 
+    try:
+        from . import fem
+        res = fem.capacitance_matrix(conductors, eps_eff=eps_eff)
+        if res is None:
+            raise ValueError("solver returned no result")
+        _, M = res
+        n = len(conductors)
+        dim = n + 1
+        labels = [c["label"] for c in conductors] + ["Gnd"]
+        matrix = [[0.0] * dim for _ in range(dim)]
+        gnd_total = 0.0
+        for i in range(n):
+            matrix[i][i] = round(float(M[i][i]), 1)                       # self (Maxwell diagonal)
+            to_gnd = float(M[i][i]) + sum(float(M[i][k]) for k in range(n) if k != i)
+            to_gnd = round(max(to_gnd, 0.0), 1)
+            matrix[i][dim - 1] = matrix[dim - 1][i] = to_gnd
+            gnd_total += to_gnd
+            for k in range(n):
+                if k != i:
+                    matrix[i][k] = round(max(-float(M[i][k]), 0.0), 2)    # mutual (positive)
+        matrix[dim - 1][dim - 1] = round(gnd_total, 1)
+        return {"labels": labels, "maxwell_matrix_fF": matrix,
+                "self_capacitance": [matrix[i][i] for i in range(n)] + [matrix[dim - 1][dim - 1]],
+                "method": "2D electrostatic FEM (quasi-static field solve)"}
+    except Exception as exc:  # noqa: BLE001 — graceful analytic fallback
+        n = len(conductors)
+        dim = n + 1
+        labels = [c["label"] for c in conductors] + ["Gnd"]
+        matrix = [[0.0] * dim for _ in range(dim)]
+        for i in range(n):
+            for j in range(i + 1, n):
+                cm = _clamp(round(120.0 / _dist(qubits[i], qubits[j]) * 50.0, 2), 0.2, 20.0)
+                matrix[i][j] = matrix[j][i] = cm
+        for i in range(n):
+            c = conductors[i]
+            matrix[i][i] = round(physics.coupling_capacitance(c["w"] * c["h"], c["gap"]) + 40.0, 1)
+            matrix[i][dim - 1] = matrix[dim - 1][i] = 60.0
+        matrix[dim - 1][dim - 1] = 320.0
+        return {"labels": labels, "maxwell_matrix_fF": matrix,
+                "self_capacitance": [matrix[i][i] for i in range(dim)],
+                "method": f"analytic estimate (FEM unavailable: {str(exc)[:60]})"}
+
+
+# ── 3b. LOM — FEM capacitance → Hamiltonian (the EM→Hamiltonian link) ──────
+def _lom(nodes: list, p: dict | None = None) -> dict:
+    """Lumped Oscillator Model: extract the capacitance matrix with the FEM solver,
+    then build each transmon's Hamiltonian from its REAL self-capacitance
+    (EC = e²/2CΣ; Ic sets EJ; f01 = √(8 EJ EC) − EC). Qubit–qubit coupling g comes
+    from the mutual capacitances. This closes the geometry → field → Hamiltonian
+    chain end-to-end (Minev 2021 quasi-lumped LOM)."""
+    qubits = [n for n in nodes if (n.get("data", {}) or {}).get("kind") == "transmon"][:8]
+    if not qubits:
+        return {"qubits": [], "couplings": [], "method": "LOM (no transmons in layout)"}
+
+    cap = _capacitance(nodes, p)            # real FEM capacitance matrix (with fallback)
+    labels, M = cap["labels"], cap["maxwell_matrix_fF"]
     n = len(qubits)
-    labels = [f"Q{i+1}" for i in range(n)] + ["Gnd"]
-    dim = n + 1
-    matrix = [[0.0] * dim for _ in range(dim)]
+    out, f01s = [], []
+    for i in range(n):
+        d = (qubits[i].get("data", {}) or {}).get("params", {}) or {}
+        c_sigma = float(M[i][i])            # FEM self-capacitance [fF]
+        ic = float(d.get("ic_nA", 30))
+        ec = physics.ec_from_capacitance(c_sigma)
+        ej = physics.ej_from_ic(ic)
+        f01, anh = physics.transmon_f01_anharm(ej, ec)   # exact diagonalization
+        f01s.append(f01)
+        out.append({
+            "qubit": labels[i], "C_sigma_fF": round(c_sigma, 1),
+            "EC_MHz": round(ec * 1000, 1), "EJ_GHz": round(ej, 2),
+            "EJ_EC": round(ej / ec, 1) if ec else 0,
+            "f01_GHz": round(f01, 4), "anharmonicity_MHz": round(anh, 1),
+        })
+    couplings = []
     for i in range(n):
         for j in range(i + 1, n):
-            cm = _clamp(round(120.0 / _dist(qubits[i], qubits[j]) * 50.0, 2), 0.2, 20.0)
-            matrix[i][j] = matrix[j][i] = cm
+            cg = float(M[i][j])             # mutual capacitance [fF] (FEM)
+            if cg < 0.05:
+                continue
+            cq, cr = float(M[i][i]), float(M[j][j])
+            g = physics.coupling_g(cg, cq, cr, f01s[i], f01s[j])
+            # the perturbative g (eq.4) is only valid for Cg << CΣ; flag/clamp when
+            # pads sit too close (Cg a large fraction of CΣ → over-estimate).
+            strong = cg > 0.2 * min(cq, cr)
+            couplings.append({
+                "pair": f"{labels[i]}-{labels[j]}", "Cg_fF": round(cg, 2),
+                "g_MHz": round(min(g, 300.0), 2),
+                "note": "pads close — increase spacing for an accurate g" if strong else "",
+            })
+    return {"qubits": out, "couplings": couplings, "source": cap.get("method"),
+            "method": "LOM (FEM capacitance -> Hamiltonian)"}
+
+
+# Default surface-loss participation (matches _decoherence) for mode-Q estimates.
+_INTERFACES = [
+    {"p": 6e-5, "tanD": 1.5e-3}, {"p": 9e-5, "tanD": 2.2e-3},
+    {"p": 3e-5, "tanD": 2.6e-3}, {"p": 0.9, "tanD": 1.8e-7},
+]
+
+
+# ── shared: FEM capacitance + Josephson L → coupled LC eigenmodes ──────────
+def _circuit_modes(nodes: list, p: dict | None = None):
+    """Build transmon conductors, run the FEM capacitance solver, form the
+    Josephson inverse-inductance matrix, and solve the LC eigenproblem. Returns a
+    dict {labels, M(fF), Lj[H], EC_MHz, modes:[(f_GHz, eigenvector)], n} — shared
+    by the eigenmode and EPR analyses — or None if there are no transmons."""
+    import numpy as np
+    qubits = [n for n in nodes if (n.get("data", {}) or {}).get("kind") == "transmon"][:8]
+    if not qubits:
+        return None
+    eps_eff = (float((p or {}).get("eps_substrate", 11.7)) + 1.0) / 2.0
+    conductors = []
+    for i, q in enumerate(qubits):
+        d = (q.get("data", {}) or {}).get("params", {}) or {}
+        pos = q.get("position", {}) or {}
+        conductors.append({
+            "label": f"Q{i+1}",
+            "x": float(pos.get("x", i * 650)), "y": float(pos.get("y", 0)),
+            "w": float(d.get("pad_width_um", 455)), "h": float(d.get("pad_height_um", 90)),
+            "gap": float(d.get("pad_gap_um", 30)),
+        })
+    from . import fem
+    res = fem.capacitance_matrix(conductors, eps_eff=eps_eff)
+    if res is None:
+        return None
+    labels, M = res
+    n = len(conductors)
+    l_inv = np.zeros((n, n))
+    Lj, EC = [], []
+    for i, q in enumerate(qubits):
+        d = (q.get("data", {}) or {}).get("params", {}) or {}
+        ic = float(d.get("ic_nA", 30)) * 1e-9
+        lj = physics.PHI0_RED / max(ic, 1e-12)              # Josephson inductance [H]
+        Lj.append(lj); l_inv[i, i] = 1.0 / lj
+        EC.append(physics.ec_from_capacitance(float(M[i][i])) * 1000.0)  # MHz
+    return {"labels": labels, "M": M, "Lj": Lj, "EC_MHz": EC,
+            "modes": fem.lc_eigenmodes(M, l_inv), "n": n}
+
+
+# ── 3c. EIGENMODE — coupled LC normal modes from the FEM field solve ────────
+def _eigenmode(nodes: list, p: dict | None = None) -> dict:
+    """Eigenmode analysis (cf. HFSS eigenmode): solve the LC eigenproblem from the
+    FEM capacitance + Josephson L for the device's coupled normal-mode spectrum,
+    inductive participation, and dielectric-limited Q."""
+    import numpy as np
+    try:
+        cm = _circuit_modes(nodes, p)
+        if not cm or not cm["modes"]:
+            return {"modes": [], "n_modes": 0, "method": "eigenmode (no transmons in layout)"}
+        labels, Lj, n = cm["labels"], np.array(cm["Lj"]), cm["n"]
+        out = []
+        for k, (f, v) in enumerate(cm["modes"]):
+            w = (v ** 2) / Lj                                # inductive energy weights
+            tot = float(w.sum()) or 1.0
+            part = {labels[i]: round(float(w[i] / tot), 3) for i in range(n)}
+            dominant = max(part, key=part.get)
+            q_int = round(physics.loss_budget(_INTERFACES, f)["Q"]) if f > 0 else 0
+            out.append({"mode": k + 1, "freq_GHz": round(f, 4), "dominant": dominant,
+                        "Q": q_int, "participation": part})
+        return {"modes": out, "n_modes": len(out),
+                "method": "LC eigenmode (FEM capacitance + Josephson L)"}
+    except Exception as exc:  # noqa: BLE001
+        return {"modes": [], "n_modes": 0, "method": f"eigenmode unavailable: {str(exc)[:60]}"}
+
+
+# ── 3d. CIRCUIT GRAPH — layout → lumped-element netlist (paper §3) ──────────
+def _circuit_graph(nodes: list, edges: list, p: dict | None = None) -> dict:
+    """Reduce the layout to a lumped-element circuit graph: islands become nodes;
+    Josephson junctions (island→ground) and capacitors (island→ground from the
+    Maxwell matrix, island→island from the mutuals) become branches. Emits a
+    SPICE-style netlist — the intermediate representation between layout and
+    Hamiltonian (paper §3)."""
+    graph_nodes = ["GND"]
+    branches = []
+    net = ["* QRIVARA circuit netlist (auto-generated from layout + FEM capacitance)"]
+    try:
+        cm = _circuit_modes(nodes, p)
+        if cm:
+            labels, M, Lj, n = cm["labels"], cm["M"], cm["Lj"], cm["n"]
+            graph_nodes += list(labels)
+            for i in range(n):
+                lj = Lj[i]
+                ic_na = (physics.PHI0_RED / lj) * 1e9                 # back out Ic [nA]
+                ej = physics.ej_from_ic(ic_na)
+                branches.append({"type": "junction", "from": labels[i], "to": "GND",
+                                 "Lj_nH": round(lj * 1e9, 2), "EJ_GHz": round(ej, 2)})
+                net.append(f"JJ{i+1} {labels[i]} GND   EJ={round(ej, 2)}GHz Lj={round(lj*1e9, 2)}nH")
+                cg = round(max(float(M[i][i]) + sum(float(M[i][k]) for k in range(n) if k != i), 0.0), 1)
+                branches.append({"type": "capacitor", "from": labels[i], "to": "GND", "C_fF": cg})
+                net.append(f"C{i+1}g {labels[i]} GND   {cg}fF")
+            for i in range(n):
+                for j in range(i + 1, n):
+                    cmut = round(-float(M[i][j]), 2)
+                    if cmut > 0.05:
+                        branches.append({"type": "capacitor", "from": labels[i], "to": labels[j], "C_fF": cmut})
+                        net.append(f"Cc{i+1}{j+1} {labels[i]} {labels[j]}   {cmut}fF")
+    except Exception as exc:  # noqa: BLE001
+        net.append(f"* extraction error: {str(exc)[:60]}")
+    net.append(".end")
+    return {"nodes": graph_nodes, "branches": branches,
+            "n_nodes": len(graph_nodes), "n_branches": len(branches),
+            "spice_netlist": "\n".join(net),
+            "method": "circuit graph from FEM capacitance + Josephson junctions"}
+
+
+# ── 3e. CLASSICAL CROSSTALK — microwave leakage from FEM capacitance ───────
+def _crosstalk(nodes: list, p: dict | None = None) -> dict:
+    """Classical (microwave) crosstalk between qubits: ξ_ij ≈ C_ij/C_jj — the
+    fraction of a drive/signal on qubit j that leaks onto qubit i (paper §4.2).
+    Reported as a matrix in dB; addressed by spacing or air-bridge field confinement."""
+    cap = _capacitance(nodes, p)
+    labels = [lab for lab in cap["labels"] if lab != "Gnd"]
+    M = cap["maxwell_matrix_fF"]
+    n = len(labels)
+    matrix, worst, worst_pair = [], 0.0, None
     for i in range(n):
-        matrix[i][i] = round(self_c(qubits[i]), 1)
-        matrix[i][dim - 1] = matrix[dim - 1][i] = 60.0
-    matrix[dim - 1][dim - 1] = 320.0
-    return {"labels": labels, "maxwell_matrix_fF": matrix,
-            "self_capacitance": [matrix[i][i] for i in range(dim)],
-            "method": "geometry estimate (analytic, not FEM)"}
+        row = []
+        for j in range(n):
+            if i == j:
+                row.append(0.0)
+                continue
+            cij = abs(float(M[i][j])); cjj = float(M[j][j]) or 1.0
+            xi = cij / cjj
+            row.append(round(20 * math.log10(xi), 1) if xi > 1e-6 else -120.0)
+            if xi > worst:
+                worst, worst_pair = xi, f"{labels[j]}->{labels[i]}"
+        matrix.append(row)
+    return {"labels": labels, "crosstalk_dB": matrix,
+            "worst_dB": round(20 * math.log10(worst), 1) if worst > 1e-6 else -120.0,
+            "worst_pair": worst_pair,
+            "method": "classical crosstalk from FEM capacitance (C_ij/C_jj)"}
+
+
+# ── 3f. MEASUREMENT FEEDBACK — close the design loop (paper §7) ─────────────
+def _feedback(nodes: list, p: dict | None = None) -> dict:
+    """Compare simulated qubit parameters (LOM from the layout) against MEASURED
+    values and suggest a recalibration. Δf01 drives an Ic/EJ correction (f01 ∝ √EJ).
+    Measured data via params: `measured` = [{f01_GHz, T1_us?, anharmonicity_MHz?}],
+    or single `measured_f01_GHz` / `measured_T1_us` (applied to Q1)."""
+    p = p or {}
+    sims = _lom(nodes, p).get("qubits", [])
+    measured = p.get("measured")
+    if not measured:
+        mf, mt, ma = p.get("measured_f01_GHz"), p.get("measured_T1_us"), p.get("measured_anharmonicity_MHz")
+        measured = [{"f01_GHz": mf, "T1_us": mt, "anharmonicity_MHz": ma}] if (mf or mt or ma) else []
+    rows, deltas = [], []
+    for i, q in enumerate(sims):
+        m = measured[i] if i < len(measured) else {}
+        ec = q["EC_MHz"] / 1000.0
+        sim_f = q["f01_GHz"]
+        row = {"qubit": q["qubit"], "sim_f01_GHz": sim_f, "meas_f01_GHz": m.get("f01_GHz"),
+               "sim_anh_MHz": q["anharmonicity_MHz"], "meas_anh_MHz": m.get("anharmonicity_MHz")}
+        mf = m.get("f01_GHz")
+        if mf:
+            row["delta_f01_MHz"] = round((mf - sim_f) * 1000, 1)
+            scale = ((mf + ec) / (sim_f + ec)) ** 2          # f01 ∝ √EJ ∝ √Ic
+            row["ic_correction_pct"] = round((scale - 1) * 100, 1)
+            deltas.append(abs(row["delta_f01_MHz"]))
+        rows.append(row)
+    return {"comparison": rows, "n_measured": len(deltas),
+            "mean_abs_delta_f01_MHz": round(sum(deltas) / len(deltas), 1) if deltas else None,
+            "method": "design-loop feedback: LOM sim vs measured + Ic recalibration"}
 
 
 # ── 4. COUPLING — two-mode interaction vs flux (LOM) ───────────────────────
@@ -290,10 +600,11 @@ def _hamiltonian(p: dict) -> dict:
     cg = float(p.get("cg_fF", 5.5)); fr = float(p.get("resonator_freq_GHz", 7.1))
     kappa = float(p.get("kappa_MHz", 1.2)); q = float(p.get("q_factor", 2e6))
     cr = 350.0
+    ng = float(p.get("ng", 0.0))
     ec = physics.ec_from_capacitance(c_sigma)
     ej = physics.ej_from_ic(ic)
-    f01 = physics.f01(ej, ec)
-    anh = physics.anharmonicity(ec)
+    levels = physics.transmon_levels(ej, ec, ng=ng)         # exact charge-basis spectrum
+    f01, anh = physics.transmon_f01_anharm(ej, ec, ng=ng)   # exact f01 + anharmonicity
     g = physics.coupling_g(cg, c_sigma, cr, f01, fr)
     chi = physics.dispersive_shift(g, f01, fr, anh)
     t1p = physics.purcell_t1(g, f01, fr, kappa)
@@ -306,11 +617,12 @@ def _hamiltonian(p: dict) -> dict:
         "qubit": "transmon",
         "EC_MHz": round(ec * 1000, 1), "EJ_GHz": round(ej, 2), "EJ_EC": round(ej / ec, 1),
         "f01_GHz": round(f01, 4), "anharmonicity_MHz": round(anh, 1),
+        "levels_GHz": [round(x, 4) for x in levels],
         "g_MHz": round(g, 1), "chi_MHz": round(chi, 3),
         "T1_us": round(t1, 1), "T2_us": round(t2v, 1),
         "parity_ratio": round(e2 / e1, 1) if e1 else 0,
         "parity_risk": (ej / ec) < 65,
-        "method": "analytic Koch-2007 model"
+        "method": "exact charge-basis diagonalization"
     }
 
 
@@ -430,26 +742,80 @@ def stamp_done(job: SimulationJob, result: dict) -> None:
 
 # ── ADVANCED SIMULATIONS ───────────────────────────────────────────────────
 def _epr(nodes: list, p: dict) -> dict:
-    return {
-        "frequencies_GHz": [5.12, 5.34, 7.10],
-        "EPR_matrix": [[0.98, 0.01, 0.0], [0.01, 0.97, 0.01], [0.0, 0.01, 0.05]],
-        "anharmonicities_MHz": [-312, -295, 0],
-        "cross_kerr_MHz": [[0, -2.1, -0.5], [-2.1, 0, -0.6], [-0.5, -0.6, 0]],
-        "method": "illustrative — not yet geometry-derived (needs FEM eigenmode)"
-    }
+    """Energy Participation Ratio analysis (Minev 2021): from the FEM eigenmodes,
+    compute each junction's inductive energy participation p_mj in each mode, then
+    the Kerr matrix A_mn = -2 Σ_j p_mj p_nj E_Cj → self-Kerr/anharmonicity (A_mm/2)
+    and cross-Kerr (A_mn). Real, geometry-derived (single transmon limit → α=-E_C)."""
+    import numpy as np
+    try:
+        cm = _circuit_modes(nodes, p)
+        if not cm or not cm["modes"]:
+            return {"frequencies_GHz": [], "EPR_matrix": [], "anharmonicities_MHz": [],
+                    "cross_kerr_MHz": [], "junctions": [],
+                    "method": "EPR unavailable (no transmons in layout)"}
+        labels, Lj, EC = cm["labels"], np.array(cm["Lj"]), np.array(cm["EC_MHz"])
+        modes = cm["modes"]; n = cm["n"]; m = len(modes)
+        freqs = [round(float(f), 4) for f, _ in modes]
+        # inductive energy participation p_mj (rows=modes, cols=junctions)
+        P = np.zeros((m, n))
+        for k, (_, v) in enumerate(modes):
+            w = (v ** 2) / Lj
+            P[k] = w / (float(w.sum()) or 1.0)
+        A = -2.0 * (P * EC) @ P.T                            # Kerr matrix [MHz]
+        anh = [round(float(A[k, k] / 2.0), 1) for k in range(m)]
+        cross = [[0.0 if a == b else round(float(A[a, b]), 3) for b in range(m)] for a in range(m)]
+        epr = [[round(float(P[a, j]), 3) for j in range(n)] for a in range(m)]
+        return {"frequencies_GHz": freqs, "EPR_matrix": epr,
+                "anharmonicities_MHz": anh, "cross_kerr_MHz": cross,
+                "junctions": labels,
+                "method": "EPR (energy participation from FEM eigenmodes)"}
+    except Exception as exc:  # noqa: BLE001
+        return {"frequencies_GHz": [], "EPR_matrix": [], "anharmonicities_MHz": [],
+                "cross_kerr_MHz": [], "junctions": [], "method": f"EPR unavailable: {str(exc)[:60]}"}
 
-def _scattering(p: dict) -> dict:
-    fr = float(p.get("center_freq_GHz", 7.1))
-    freq_points = [round(fr - 0.2 + (i/40)*0.4, 4) for i in range(41)]
-    s21 = [round(-20 + 15 * math.exp(-((f - fr)/0.01)**2), 2) for f in freq_points]
-    s11 = [round(-1 - 10 * math.exp(-((f - fr)/0.01)**2), 2) for f in freq_points]
-    return {"freq_points_GHz": freq_points, "S11_dB": s11, "S21_dB": s21, "Q_ext": 12500,
-            "method": "illustrative S-params — not yet geometry-derived (needs driven FEM)"}
+def _scattering(p: dict, nodes: list | None = None) -> dict:
+    """Driven S-parameters of a notch/hanger resonator on a feedline — the standard
+    measured response S21(f) = 1 − (Q_l/Q_c)/(1 + 2i Q_l (f/f0 − 1)). f0 from the
+    resonator's CPW length (or eigenmode), Q_c from κ, Q_i from the surface-loss
+    budget. A real circuit-model S-parameter, not a hand-drawn dip."""
+    f0 = float(p.get("center_freq_GHz", p.get("resonator_freq_GHz", 7.1)))
+    method = "input frequency"
+    length = float(p.get("length_um", 0) or 0)
+    if not length and nodes:
+        for n in nodes:
+            d = (n.get("data", {}) or {}).get("params", {}) or {}
+            if (n.get("data", {}) or {}).get("kind") == "resonator" and d.get("length_um"):
+                length = float(d["length_um"]); break
+    if length:
+        f0 = physics.cpw_resonator_freq(length, float(p.get("eps_substrate", 11.7)),
+                                        p.get("resonator_mode", "quarter"))
+        method = f"geometry (CPW L={length:.0f}um)"
+    kappa = float(p.get("kappa_MHz", 1.2))
+    qc = f0 * 1e9 / max(kappa * 1e6, 1.0)              # coupling (external) Q from κ
+    qi = physics.loss_budget(_INTERFACES, f0)["Q"]     # internal Q from surface loss
+    ql = 1.0 / (1.0 / qc + 1.0 / qi)                   # loaded Q
+    lw = f0 / ql                                       # loaded linewidth [GHz]
+    freqs, s21, s11 = [], [], []
+    for i in range(201):
+        f = f0 - 8 * lw + (16 * lw) * (i / 200)
+        x = 2 * ql * (f / f0 - 1.0)
+        denom = complex(1.0, x)
+        S21 = 1.0 - (ql / qc) / denom                  # hanger transmission
+        S11 = (ql / qc) / denom - 0.5                   # reflection-style trace
+        freqs.append(round(f, 5))
+        s21.append(round(20 * math.log10(max(abs(S21), 1e-4)), 2))
+        s11.append(round(20 * math.log10(max(abs(S11), 1e-4)), 2))
+    return {"freq_points_GHz": freqs, "S11_dB": s11, "S21_dB": s21,
+            "Q_ext": round(qc), "Q_int": round(qi), "Q_loaded": round(ql),
+            "f0_GHz": round(f0, 4), "method": f"hanger-resonator model ({method})"}
 
 def _decoherence(p: dict) -> dict:
-    """Coherence budget: dielectric T1 from the surface-loss participation model
-    (paper eq.16), Purcell T1 from readout coupling, combined T1, then T2 echo."""
-    fq = float(p.get("f01_GHz", 5.0))
+    """Full coherence budget across all channels:
+    T1  = dielectric (surface-loss participation) ∥ Purcell ∥ quasiparticle.
+    Tφ  = photon-shot-noise ∥ flux-noise 1/f (tunable) ∥ any measured residual.
+    Reports Ramsey (T2*) and echo (T2E) separately — they differ for 1/f noise."""
+    fq = max(float(p.get("f01_GHz", 5.0)), 1e-6)   # clamp: f01=0 would divide by zero
+    anh = float(p.get("anharmonicity_MHz", -300.0))
     interfaces = p.get("interfaces") or [
         {"p": 6e-5, "tanD": 1.5e-3}, {"p": 9e-5, "tanD": 2.2e-3},
         {"p": 3e-5, "tanD": 2.6e-3}, {"p": 0.9, "tanD": 1.8e-7},
@@ -459,17 +825,102 @@ def _decoherence(p: dict) -> dict:
     g = float(p.get("g_MHz", 92)); fr = float(p.get("resonator_freq_GHz", 7.1))
     kappa = float(p.get("kappa_MHz", 1.2))
     t1_purcell = physics.purcell_t1(g, fq, fr, kappa)
-    t1 = physics.combine_t1(t1_diel, t1_purcell)
-    t2 = physics.t2(t1, float(p.get("t_phi_us", 120)))
+    # quasiparticle channel
+    x_qp = float(p.get("x_qp", 1e-7)); tc = float(p.get("tc_K", 1.2))
+    t1_qp = physics.quasiparticle_t1(fq, x_qp, tc)
+    t1 = physics.combine_t1(t1_diel, t1_purcell, t1_qp)
+
+    # dephasing channels
+    chi = physics.dispersive_shift(g, fq, fr, anh)
+    temp_k = float(p.get("temp_K", 0.05))
+    n_bar = p.get("n_bar")
+    t_phi_photon = physics.photon_shot_noise_dephasing(
+        chi, kappa, n_bar=float(n_bar) if n_bar is not None else None, fr_ghz=fr, temp_k=temp_k)
+    flux = None
+    if p.get("tunable"):
+        ej_sum = float(p.get("ej_sum_GHz", 30.0))
+        ec = float(p.get("EC_GHz", abs(anh) / 1000.0))
+        flux_ratio = float(p.get("flux_ratio", 0.1)); a_phi = float(p.get("a_phi_uphi0", 2.0))
+        flux = physics.flux_noise_dephasing(ej_sum, ec, flux_ratio, a_phi_uphi0=a_phi, echo=False)
+        flux_echo = physics.flux_noise_dephasing(ej_sum, ec, flux_ratio, a_phi_uphi0=a_phi, echo=True)
+    residual = float(p["t_phi_us"]) if p.get("t_phi_us") else None
+
+    ramsey_terms = [t for t in (t_phi_photon, flux["t_phi_us"] if flux else None, residual) if t]
+    echo_terms = [t for t in (t_phi_photon, flux_echo["t_phi_us"] if flux else None, residual) if t]
+    tphi_ramsey = physics.combine_t1(*ramsey_terms) if ramsey_terms else math.inf
+    tphi_echo = physics.combine_t1(*echo_terms) if echo_terms else math.inf
+    t2_ramsey = physics.t2(t1, tphi_ramsey)
+    t2_echo = physics.t2(t1, tphi_echo)
     return {
         "T1_dielectric_us": round(t1_diel, 1),
         "T1_purcell_us": round(t1_purcell, 1) if math.isfinite(t1_purcell) else None,
+        "T1_quasiparticle_us": round(t1_qp, 1) if math.isfinite(t1_qp) else None,
         "T1_total_us": round(t1, 1),
-        "T2_echo_us": round(t2, 1),
+        "Tphi_photon_us": round(t_phi_photon, 1) if math.isfinite(t_phi_photon) else None,
+        "Tphi_flux_us": round(flux["t_phi_us"], 1) if (flux and math.isfinite(flux["t_phi_us"])) else None,
+        "T2_ramsey_us": round(t2_ramsey, 1),
+        "T2_echo_us": round(t2_echo, 1),
         "TLS_limit_us": round(t1_diel, 1),
         "Q_dielectric": round(lb["Q"]),
-        "method": "surface-loss participation (paper eq.16)",
+        "chi_MHz": round(chi, 3),
+        "method": "multi-channel T1 (dielectric+Purcell+QP) + Tφ (photon-shot+flux 1/f)",
     }
+
+
+def _gate_fidelity(p: dict) -> dict:
+    """Coherence-limited 1Q & 2Q gate fidelity (Abad 2022; Krantz 2019 §VI). Uses
+    explicit T1/T2 if provided, else derives them from the decoherence budget."""
+    p = p or {}
+    if p.get("T1_us") and p.get("T2_us"):
+        t1, t2v = float(p["T1_us"]), float(p["T2_us"])
+    else:
+        dec = _decoherence(p); t1, t2v = dec["T1_total_us"], dec["T2_echo_us"]
+    tg1 = float(p.get("t_gate_1q_ns", 20.0)); tg2 = float(p.get("t_gate_2q_ns", 200.0))
+    zz = float(p.get("zz_kHz", 0.0))
+    e1 = physics.gate_error_1q(t1, t2v, tg1)
+    two = physics.gate_error_2q(t1, t2v, t1, t2v, tg2, zz_khz=zz)
+    return {
+        "T1_us": round(t1, 1), "T2_us": round(t2v, 1),
+        "t_gate_1q_ns": tg1, "t_gate_2q_ns": tg2,
+        "error_1q": e1, "fidelity_1q_pct": round(100 * (1 - e1), 4),
+        "error_2q": two["total_error"], "fidelity_2q_pct": two["fidelity_pct"],
+        "error_2q_coherence": two["coherence_error"], "error_2q_zz": two["zz_error"],
+        "method": "coherence-limited gate error (Abad 2022; Krantz 2019 §VI)",
+    }
+
+
+def _readout(p: dict) -> dict:
+    """Dispersive single-shot readout: SNR and assignment fidelity (Gambetta 2007;
+    Krantz 2019 §V-C). χ from the dispersive shift, T1 from the coherence budget."""
+    p = p or {}
+    fq = float(p.get("f01_GHz", 5.0)); fr = float(p.get("resonator_freq_GHz", 7.1))
+    g = float(p.get("g_MHz", 92)); anh = float(p.get("anharmonicity_MHz", -300.0))
+    kappa = float(p.get("kappa_MHz", 1.2)); n_bar = float(p.get("n_bar", 5.0))
+    t_int = float(p.get("t_int_ns", 500.0)); eta = float(p.get("eta", 0.5))
+    chi = physics.dispersive_shift(g, fq, fr, anh)
+    t1 = float(p["T1_us"]) if p.get("T1_us") else _decoherence(p)["T1_total_us"]
+    snr = physics.readout_snr(abs(chi), kappa, n_bar, t_int, eta)
+    fid = physics.readout_fidelity(snr, t1_us=t1, t_int_ns=t_int)
+    return {"chi_MHz": round(chi, 3), "kappa_MHz": kappa, "n_bar": n_bar,
+            "t_int_ns": t_int, "T1_us": round(t1, 1), **fid,
+            "method": "dispersive readout SNR + assignment fidelity (Gambetta 2007)"}
+
+
+def _qec(p: dict) -> dict:
+    """Surface-code error correction: maps a physical per-cycle error to a logical
+    qubit (Fowler 2012; Λ from Google 2023). Physical error defaults to the 2Q
+    gate error from the coherence budget."""
+    p = p or {}
+    p_phys = float(p["p_phys"]) if p.get("p_phys") else _gate_fidelity(p)["error_2q"]
+    p_th = float(p.get("p_threshold", 0.01)); target = float(p.get("target_pL", 1e-6))
+    dist = int(p["distance"]) if p.get("distance") else None
+    res = physics.physical_to_logical(p_phys, distance=dist, target_pL=target, p_th=p_th)
+    table = [{"distance": d,
+              "p_logical": physics.surface_code_logical_error(p_phys, d, p_th),
+              "physical_qubits": 2 * d * d - 1}
+             for d in (3, 5, 7, 9, 11, 13)]
+    return {**res, "target_pL": target, "distance_table": table,
+            "method": "surface-code logical error + Λ (Fowler 2012; Google 2023)"}
 
 def _zz_crosstalk(nodes: list, p: dict | None = None) -> dict:
     """Static ZZ between transmon pairs from perturbation theory (paper §4.2),

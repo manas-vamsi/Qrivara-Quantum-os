@@ -1,6 +1,36 @@
+import math
 from typing import Any, Optional
 
+from fastapi import HTTPException
 from pydantic import BaseModel
+
+
+def reject_nonfinite(obj: Any, _path: str = "params") -> None:
+    """Recursively reject NaN/±Inf in a request payload (and numeric strings that
+    coerce to them, e.g. "inf", "nan", "1e999"). Non-finite values break JSON
+    persistence on Postgres (jsonb rejects them) and Starlette's response renderer
+    (allow_nan=False → 500). Raise 422 at the boundary instead. Non-numeric strings
+    (e.g. "transmon") pass through untouched."""
+    if isinstance(obj, bool):
+        return
+    if isinstance(obj, (int, float)):
+        if isinstance(obj, float) and not math.isfinite(obj):
+            raise HTTPException(422, f"{_path} is a non-finite number")
+        return
+    if isinstance(obj, str):
+        try:
+            f = float(obj)
+        except (TypeError, ValueError):
+            return
+        if not math.isfinite(f):
+            raise HTTPException(422, f"{_path} coerces to a non-finite number")
+        return
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            reject_nonfinite(v, f"{_path}.{k}")
+    elif isinstance(obj, (list, tuple)):
+        for i, v in enumerate(obj):
+            reject_nonfinite(v, f"{_path}[{i}]")
 
 
 class ProjectCreate(BaseModel):
@@ -46,7 +76,9 @@ class SimulationCreate(BaseModel):
 
 class OptimizationCreate(BaseModel):
     method: str = "bayesian"
-    objectives: dict[str, Any] = {}
+    # Accept either a list of objective names (["frequency", ...]) or a dict;
+    # the router normalizes to a dict before persisting.
+    objectives: list[str] | dict[str, Any] = {}
     params: dict[str, Any] = {}
 
 

@@ -22,6 +22,7 @@ import { cn, fmtUs } from "@/lib/utils";
 import { Metric } from "@/components/common/Metric";
 import { toneBg, type Tone } from "@/lib/tones";
 import { useDataStore } from "@/store/useDataStore";
+import { useAppStore } from "@/store/useAppStore";
 import { api } from "@/lib/api";
 
 const lossTone: Tone[] = ["primary", "cyan", "violet", "warning"];
@@ -51,6 +52,13 @@ export default function Fabrication() {
   useEffect(() => {
     if (!projectId && projects.length) setProjectId(projects[0].id);
   }, [projects, projectId]);
+
+  // Share the focused project with the AI assistant.
+  const setActiveProject = useAppStore((s) => s.setActiveProject);
+  useEffect(() => {
+    const p = projects.find((x) => x.id === projectId);
+    if (p) setActiveProject(p.id, p.name);
+  }, [projectId, projects, setActiveProject]);
 
   const runFab = async (pid: string) => {
     if (!pid) return;

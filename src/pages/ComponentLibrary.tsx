@@ -13,13 +13,16 @@ import {
   Grid3x3,
   Cable,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Form";
 import { EmptyState } from "@/components/common/EmptyState";
 import { type ComponentKind, type ComponentDef } from "@/data/mockData";
 import { useDataStore } from "@/store/useDataStore";
+import { api } from "@/lib/api";
 import { toneChip, type Tone } from "@/lib/tones";
 import { cn } from "@/lib/utils";
 
@@ -63,10 +66,45 @@ function labelFor(key: string) {
 export default function ComponentLibrary() {
   const [q, setQ] = useState("");
   const storeComps = useDataStore((s) => s.components);
+  const fetchProjects = useDataStore((s) => s.fetchProjects);
+  const navigate = useNavigate();
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const validated: any[] = (storeComps as any)?.validated_designs || [];
   const COMPONENT_LIBRARY = useMemo(() => {
     // combine built-in and custom if desired, or just use built_in
     return [...(storeComps?.built_in || []), ...(storeComps?.custom || [])];
   }, [storeComps]);
+
+  // One-click "load a fab-ready design": create a project, seed its canvas with a
+  // qubit carrying the validated parameters, and open it in the Designer.
+  const useValidated = async (vd: any) => {
+    setLoadingId(vd.id);
+    try {
+      const proj = await api.createProject({
+        name: vd.name, description: vd.source || "Validated reference design",
+        domain: "superconducting", qubits: 1, tags: ["validated"],
+      });
+      await fetchProjects();
+      const designs = await api.getProjectDesigns(proj.id);
+      const d0 = designs?.[0];
+      if (d0) {
+        const node = {
+          id: "q1", position: { x: 400, y: 280 },
+          data: {
+            kind: vd.qubit, label: vd.name,
+            color: vd.qubit === "fluxonium" ? "violet" : "primary",
+            params: vd.params || {},
+          },
+        };
+        await api.saveDesign(d0.id, d0.version ?? 0, { nodes: [node], edges: [] });
+      }
+      navigate("/app/designer");
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingId(null);
+    }
+  };
 
   const grouped = useMemo(() => {
     const s = q.toLowerCase();
@@ -102,6 +140,56 @@ export default function ComponentLibrary() {
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
+
+      {validated.length > 0 && (
+        <section>
+          <h2 className="mb-1 font-display text-base font-semibold tracking-tight text-fg">
+            Validated Designs
+            <span className="ml-2 text-sm font-normal text-fg-subtle">{validated.length}</span>
+          </h2>
+          <p className="mb-3 text-sm text-fg-subtle">
+            Fab-ready reference designs with measured-vs-simulated values — one click to start a new project from one.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {validated.map((vd) => {
+              const Icon = vd.qubit === "fluxonium" ? Atom : Cpu;
+              const v = vd.validated || {};
+              return (
+                <Card key={vd.id} hover>
+                  <CardContent className="pt-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3">
+                        <div className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-xl", toneChip[(vd.qubit === "fluxonium" ? "violet" : "primary") as Tone])}>
+                          <Icon className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="font-display text-sm font-semibold text-fg">{vd.name}</h3>
+                          <p className="text-xs text-fg-subtle">{vd.source}</p>
+                        </div>
+                      </div>
+                      <Badge tone="success" dot>validated</Badge>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                      <Spec label="Target f₀₁" value={`${vd.target_freq_GHz} GHz`} />
+                      <Spec label="Anharmonicity" value={`${vd.anharmonicity_MHz} MHz`} />
+                      {v.measured_f01_GHz != null && <Spec label="Measured f₀₁" value={`${v.measured_f01_GHz} GHz`} />}
+                      {v.measured_T1_us != null && <Spec label="Measured T₁" value={`${v.measured_T1_us} µs`} />}
+                      {v.yield_pct != null && <Spec label="Yield" value={`${v.yield_pct}%`} />}
+                    </div>
+                    <Button
+                      className="mt-4 w-full"
+                      loading={loadingId === vd.id}
+                      onClick={() => useValidated(vd)}
+                    >
+                      Use this design
+                    </Button>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {grouped.length === 0 ? (
         <EmptyState icon={<Boxes className="h-5 w-5" />} title="No components match" description="Try another search." />
@@ -157,6 +245,15 @@ export default function ComponentLibrary() {
           </section>
         ))
       )}
+    </div>
+  );
+}
+
+function Spec({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between border-b border-line/40 py-0.5 last:border-0">
+      <span className="text-fg-muted">{label}</span>
+      <span className="font-mono text-fg">{value}</span>
     </div>
   );
 }

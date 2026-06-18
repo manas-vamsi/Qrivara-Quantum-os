@@ -15,34 +15,114 @@ import struct
 
 # ── layout helpers ─────────────────────────────────────────────────────────
 
-def _rects_from_doc(doc: dict) -> list[dict]:
-    """Turn the design graph into axis-aligned rectangles [µm] per node. Canvas
-    units are treated as microns; pad geometry (when present) sets the size."""
-    rects = []
+def _rect(x, y, w, h):
+    return [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
+
+
+def _meander(x, y, length, width):
+    """Serpentine polygons approximating a CPW resonator of total `length` [µm]."""
+    run = 220.0
+    pitch = max(4 * width, 24.0)
+    n = max(1, min(40, int(length / run)))
+    polys = []
+    for i in range(n):
+        yy = y + i * pitch
+        polys.append(_rect(x, yy, run, width))                 # horizontal run
+        if i < n - 1:                                          # vertical connector (alternating end)
+            cx = x + (run - width if i % 2 == 0 else 0.0)
+            polys.append(_rect(cx, yy, width, pitch))
+    return polys
+
+
+def _component_polys(kind: str, x: float, y: float, w: float, h: float, d: dict):
+    """Real-ish metal footprint polygons [µm] for a component kind."""
+    if kind in ("transmon",) and d.get("arm_length_um") is None:
+        # Xmon-style cross: horizontal + vertical arm
+        arm = max(min(w, h) * 0.28, 10.0)
+        cx, cy = x + w / 2, y + h / 2
+        return [_rect(x, cy - arm / 2, w, arm), _rect(cx - arm / 2, y, arm, h)]
+    if kind == "resonator":
+        length = float(d.get("length_um", 4000)); width = float(d.get("width_um", 10))
+        return _meander(x, y, length, width)
+    if kind == "feedline":
+        length = float(d.get("length_um", 2800)); width = float(d.get("width_um", 10))
+        return [_rect(x, y, length, width)]
+    if kind == "launchpad":
+        taper = float(d.get("taper_length_um", w * 0.6))
+        return [[(x, y), (x + w, y + h * 0.3), (x + w, y + h * 0.7), (x, y + h)],
+                _rect(x + w, y + h * 0.4, taper, h * 0.2)]
+    if kind == "airbridge":
+        return [_rect(x, y, w, max(h, 6.0))]
+    return [_rect(x, y, w, h)]
+
+
+def _polys_from_doc(doc: dict) -> list[dict]:
+    """Per-node metal footprint polygons [µm] with layer — real component shapes
+    (Xmon crosses, CPW meanders, feedlines, tapers), not just bounding boxes."""
+    out = []
     for n in doc.get("nodes", []):
         pos = n.get("position", {}) or {}
         d = (n.get("data", {}) or {}).get("params", {}) or {}
+        kind = (n.get("data", {}) or {}).get("kind", "")
         w = float(d.get("pad_width_um", d.get("width_um", 120)))
         h = float(d.get("pad_height_um", d.get("height_um", 80)))
         x = float(pos.get("x", 0)); y = float(pos.get("y", 0))
-        layer = int(d.get("layer", 1))
-        rects.append({"x": x, "y": y, "w": w, "h": h, "layer": layer,
-                      "id": n.get("id", ""), "kind": (n.get("data", {}) or {}).get("kind", "")})
-    return rects
+        layer = 2 if kind in ("junction", "squid") else int(d.get("layer", 1))
+        for pts in _component_polys(kind, x, y, w, h, d):
+            out.append({"points": pts, "layer": layer})
+    return out
 
 
 # ── DXF (ASCII, R12 ENTITIES) ──────────────────────────────────────────────
 
 def design_to_dxf(doc: dict) -> str:
-    """Minimal AutoCAD DXF: one closed LWPOLYLINE rectangle per component, on its
+    """AutoCAD DXF: one closed LWPOLYLINE per component-footprint polygon, on its
     layer. Readable by KLayout, AutoCAD, and most CAD/EDA tools."""
     out: list[str] = ["0", "SECTION", "2", "ENTITIES"]
-    for r in _rects_from_doc(doc):
-        x0, y0, x1, y1 = r["x"], r["y"], r["x"] + r["w"], r["y"] + r["h"]
-        out += ["0", "LWPOLYLINE", "8", str(r["layer"]), "90", "4", "70", "1"]
-        for vx, vy in ((x0, y0), (x1, y0), (x1, y1), (x0, y1)):
+    for poly in _polys_from_doc(doc):
+        pts = poly["points"]
+        out += ["0", "LWPOLYLINE", "8", str(poly["layer"]), "90", str(len(pts)), "70", "1"]
+        for vx, vy in pts:
             out += ["10", f"{vx:.3f}", "20", f"{vy:.3f}"]
     out += ["0", "ENDSEC", "0", "EOF"]
+    return "\n".join(out) + "\n"
+
+
+# ── DRC rule deck (KLayout) — the .drc file fabs run ───────────────────────
+
+def design_to_drc(doc: dict | None = None) -> str:
+    """Generate a KLayout DRC rule deck (.drc, Ruby DSL) from QRIVARA's design
+    rules — the design-rule-check file that accompanies the GDS for fabrication.
+    Run with: klayout -b -r qrivara.drc -rd input=design.gds"""
+    try:
+        from .catalog import DRC_RULES
+    except Exception:  # pragma: no cover
+        DRC_RULES = []
+    out = [
+        "# QRIVARA — KLayout DRC rule deck (auto-generated)",
+        "# Usage:  klayout -b -r qrivara.drc -rd input=design.gds",
+        "",
+        'report("QRIVARA DRC")',
+        "source($input)",
+        "",
+        "metal = input(1, 0)   # layer 1/0 = superconducting metal",
+        "junctions = input(2, 0)  # layer 2/0 = Josephson junctions",
+        "",
+    ]
+    for r in DRC_RULES:
+        rid = r.get("id", "rule"); name = r.get("name", rid)
+        mn = r.get("min"); mx = r.get("max"); unit = r.get("unit"); val = r.get("value")
+        if unit == "um" and mn is not None and ("width" in rid or "feature" in rid or "bondpad" in rid):
+            out.append(f'metal.width({mn}.um).output("{rid}", "{name}: width < {mn} um")')
+        elif unit == "um" and mn is not None and ("gap" in rid or "spac" in rid or "keepout" in rid or "overlap" in rid):
+            out.append(f'metal.space({mn}.um).output("{rid}", "{name}: spacing < {mn} um")')
+        elif "jj" in rid or "junction" in rid:
+            out.append(f'junctions.area.output("{rid}", "{name}: target {val} {unit}'
+                       f'{f" (min {mn}, max {mx})" if mn is not None else ""}")')
+        else:
+            rng = f" min {mn}" + (f" max {mx}" if mx is not None else "") if mn is not None else ""
+            out.append(f'# {name}: {val} {unit}{rng} — verify (layer-specific)')
+    out.append("")
     return "\n".join(out) + "\n"
 
 
@@ -86,13 +166,12 @@ def design_to_gds(doc: dict, lib: str = "QRIVARA") -> bytes:
     s.write(_rec(0x05, 0x02, struct.pack(">12h", *ts, *ts)))          # BGNSTR
     s.write(_rec(0x06, 0x06, b"TOP\0"))                               # STRNAME
 
-    for r in _rects_from_doc(doc):
-        x0 = int(r["x"] * DBU_PER_UM); y0 = int(r["y"] * DBU_PER_UM)
-        x1 = int((r["x"] + r["w"]) * DBU_PER_UM); y1 = int((r["y"] + r["h"]) * DBU_PER_UM)
-        pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]  # closed
+    for poly in _polys_from_doc(doc):
+        pts = [(int(px * DBU_PER_UM), int(py * DBU_PER_UM)) for px, py in poly["points"]]
+        pts.append(pts[0])                                            # close the boundary
         xy = b"".join(struct.pack(">ii", px, py) for px, py in pts)
         s.write(_rec(0x08, 0x00))                                     # BOUNDARY
-        s.write(_rec(0x0D, 0x02, struct.pack(">h", r["layer"])))      # LAYER
+        s.write(_rec(0x0D, 0x02, struct.pack(">h", int(poly["layer"]))))  # LAYER
         s.write(_rec(0x0E, 0x02, struct.pack(">h", 0)))              # DATATYPE
         s.write(_rec(0x10, 0x03, xy))                                 # XY
         s.write(_rec(0x11, 0x00))                                     # ENDEL
@@ -186,4 +265,5 @@ RESULT_FORMATS = {
 DESIGN_FORMATS = {
     "gds": {"ext": "gds", "media": "application/octet-stream", "label": "GDS-II (mask / KLayout)"},
     "dxf": {"ext": "dxf", "media": "application/dxf", "label": "DXF (CAD)"},
+    "drc": {"ext": "drc", "media": "text/plain", "label": "DRC rule deck (KLayout)"},
 }

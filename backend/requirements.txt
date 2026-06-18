@@ -1,6 +1,11 @@
 fastapi>=0.110
-uvicorn[standard]>=0.27
+uvicorn[standard]>=0.27          # ASGI server (run target)
 sqlmodel>=0.0.16
+sqlalchemy>=2.0                  # imported directly (Column, JSON) in app/models.py
+pydantic>=2.5                    # imported directly (BaseModel) in schemas/ai
 pydantic-settings>=2.2
 numpy>=1.26
-psycopg2-binary>=2.9.9
+scipy>=1.11                      # FEM EM solver (app/fem.py) + Nelder-Mead optimizer (routers/optimization.py)
+psycopg2-binary>=2.9.9          # PostgreSQL driver (used via DATABASE_URL)
+openai>=1.40                    # OpenAI-compatible client for Groq / Gemini / OpenRouter
+pytest>=8.0                     # dev only: backend test suite (tests/) — `python -m pytest`

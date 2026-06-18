@@ -32,6 +32,7 @@ import { AvatarGroup } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/common/EmptyState";
 import { CHART, axisProps, ChartTooltip } from "@/lib/chartTheme";
 import { useDataStore } from "@/store/useDataStore";
+import { useAppStore } from "@/store/useAppStore";
 import { api } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
 
@@ -56,6 +57,12 @@ export default function Results() {
 
   const project = useMemo(() => projects.find((p) => p.id === selectedId) ?? null, [projects, selectedId]);
 
+  // Let the AI assistant know which project the user is viewing.
+  const setActiveProject = useAppStore((s) => s.setActiveProject);
+  useEffect(() => {
+    if (project) setActiveProject(project.id, project.name);
+  }, [project, setActiveProject]);
+
   useEffect(() => {
     if (selectedId) {
       setLoading(true);
@@ -68,7 +75,7 @@ export default function Results() {
             jobId: data.last_job_id,
             metrics: [
               { label: "Frequency", value: m.frequency_GHz.toFixed(3), unit: "GHz", tone: "primary" as const, icon: <Radio className="h-[1.1rem] w-[1.1rem]" /> },
-              { label: "Q Factor", value: m.q_factor_k.toFixed(1), unit: "k", tone: "cyan" as const, icon: <Gauge className="h-[1.1rem] w-[1.1rem]" /> },
+              { label: "Q Factor", value: m.q_factor_k >= 1000 ? (m.q_factor_k / 1000).toFixed(2) : m.q_factor_k.toFixed(1), unit: m.q_factor_k >= 1000 ? "M" : "k", tone: "cyan" as const, icon: <Gauge className="h-[1.1rem] w-[1.1rem]" /> },
               { label: "Coupling", value: m.coupling_MHz.toFixed(0), unit: "MHz", tone: "violet" as const, icon: <Link2 className="h-[1.1rem] w-[1.1rem]" /> },
               { label: "Capacitance", value: m.capacitance_fF.toFixed(1), unit: "fF", tone: "success" as const, icon: <Activity className="h-[1.1rem] w-[1.1rem]" /> },
               { label: "Inductance", value: m.inductance_nH.toFixed(1), unit: "nH", tone: "warning" as const, icon: <Zap className="h-[1.1rem] w-[1.1rem]" /> },
