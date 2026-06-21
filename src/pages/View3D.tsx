@@ -31,6 +31,11 @@ const toneHex: Record<string, string> = {
 
 const T = 0.06;
 const Y = 0.19;
+// Real µm → scene-unit scale (so a 455 µm transmon pad ≈ 1.4 units, matching the
+// chip's true proportions). Geometry is sized from the SAME parameters the FEM
+// solver consumes (pad_width_um, pad_height_um, pad_gap_um, trace width).
+const UM = 1 / 320;
+const num = (v: unknown, d: number) => (typeof v === "number" && isFinite(v) ? v : d);
 
 interface Part {
   id: string;
@@ -40,20 +45,42 @@ interface Part {
   params: Record<string, unknown>;
   x: number;
   z: number;
+  w: number;   // footprint width  [scene units], to scale from real µm dimensions
+  d: number;   // footprint depth  [scene units]
 }
 
-const SIZE: Record<string, [number, number]> = {
-  transmon: [1.4, 1.4],
-  fluxonium: [1.0, 1.0],
-  resonator: [2.0, 0.18],
-  coupler: [0.7, 0.9],
-  feedline: [0.18, 3.0],
-  launchpad: [0.5, 0.5],
-  junction: [0.3, 0.3],
-  "flux-line": [0.16, 1.2],
-  ground: [1.0, 1.0],
-  airbridge: [0.5, 0.5],
-};
+/** Real footprint [w_µm, d_µm] of a component from its design parameters. Pads use
+ * their true rectangle; routed CPW (resonator/feedline) use the real trace width and
+ * a representative routed length (the meander itself isn't stored as geometry). */
+function footprintUm(kind: string, p: Record<string, any>): [number, number] {
+  const pw = num(p.pad_width_um, 455), ph = num(p.pad_height_um, 90), gap = num(p.pad_gap_um, 30);
+  const tw = num(p.width_um ?? p.trace_width_um, 10);
+  switch (kind) {
+    case "transmon":
+    case "squid":
+      return [pw, 2 * ph + gap];                      // two pads + junction gap (real)
+    case "fluxonium":
+      return [num(p.pad_width_um, 200), num(p.pad_height_um, 200)];
+    case "resonator":
+    case "purcell-filter":
+      return [Math.min(num(p.length_um, 4000), 1400) * 0.5, Math.max(tw, 8)]; // routed (schematic length)
+    case "feedline":
+      return [Math.max(tw, 8), Math.min(num(p.length_um, 3000), 2600)];
+    case "coupler":
+      return [num(p.pad_width_um, 120), num(p.pad_height_um, 90)];
+    case "launchpad":
+      return [num(p.pad_width_um, 300), num(p.pad_height_um, 300)];
+    case "junction":
+      return [Math.max(tw, 2), Math.max(tw, 2)];
+    case "flux-line":
+    case "drive-line":
+      return [Math.max(tw, 6), Math.min(num(p.length_um, 800), 800)];
+    case "airbridge":
+      return [num(p.width_um, 30), num(p.width_um, 30)];
+    default:
+      return [Math.max(tw, 60), Math.max(tw, 60)];
+  }
+}
 
 const SAMPLE_EDGES = [
   { source: "q1", target: "cpl" },
@@ -79,15 +106,22 @@ function mapNodes(nodes: any[]): Part[] {
   const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
   return nodes
     .filter((n) => (n.data?.kind ?? "") !== "ground")
-    .map((n) => ({
-      id: n.id,
-      kind: n.data?.kind ?? "transmon",
-      color: n.data?.color ?? "primary",
-      label: n.data?.label ?? n.id,
-      params: n.data?.params ?? {},
-      x: Math.max(-4.5, Math.min(4.5, ((n.position?.x ?? 0) - cx) / 130)),
-      z: Math.max(-3.3, Math.min(3.3, ((n.position?.y ?? 0) - cy) / 130)),
-    }));
+    .map((n) => {
+      const kind = n.data?.kind ?? "transmon";
+      const params = n.data?.params ?? {};
+      const [wUm, dUm] = footprintUm(kind, params);   // real µm footprint
+      return {
+        id: n.id,
+        kind,
+        color: n.data?.color ?? "primary",
+        label: n.data?.label ?? n.id,
+        params,
+        x: Math.max(-4.5, Math.min(4.5, ((n.position?.x ?? 0) - cx) / 130)),
+        z: Math.max(-3.3, Math.min(3.3, ((n.position?.y ?? 0) - cy) / 130)),
+        w: Math.max(0.05, wUm * UM),                  // to-scale footprint [scene units]
+        d: Math.max(0.05, dUm * UM),
+      };
+    });
 }
 
 function PartMesh({
@@ -102,7 +136,7 @@ function PartMesh({
   onSelect: () => void;
 }) {
   const color = toneHex[part.color] ?? toneHex.primary;
-  const [w, d] = SIZE[part.kind] ?? [0.8, 0.8];
+  const w = part.w, d = part.d;                       // to-scale footprint from real µm dims
   const y = part.kind === "airbridge" ? 0.4 : Y;
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
@@ -273,7 +307,7 @@ export default function View3D() {
     if (!designId) return;
     setMeshLoading(true);
     try {
-      const job: any = await api.runSimulation(designId, "mesh", "palace", { quality: "medium" });
+      const job: any = await api.runSimulation(designId, "mesh", "qrivara_fem", { quality: "medium" });
       setMesh(job?.result ?? job ?? null);
       setWire(true); // show the mesh (wireframe) once generated
     } catch {
@@ -390,12 +424,12 @@ export default function View3D() {
               <Button size="sm" className="w-full" loading={meshLoading} icon={<Grid3x3 className="h-4 w-4" />} onClick={runMesh}>
                 Generate Mesh
               </Button>
-              {mesh && (
+              {mesh && (mesh.nodes != null || mesh.cells != null) && (
                 <div className="grid grid-cols-2 gap-2">
-                  <MeshStat label="Elements" value={Number(mesh.elements ?? 0).toLocaleString()} />
-                  <MeshStat label="Nodes" value={Number(mesh.nodes ?? 0).toLocaleString()} />
-                  <MeshStat label="Quality" value={String(mesh.quality ?? "—")} />
-                  <MeshStat label="Regions" value={String(mesh.regions ?? "—")} />
+                  <MeshStat label="Grid nodes" value={Number(mesh.nodes ?? 0).toLocaleString()} />
+                  <MeshStat label="Cells" value={Number(mesh.cells ?? 0).toLocaleString()} />
+                  <MeshStat label="Cell size" value={mesh.cell_size_um != null ? `${mesh.cell_size_um} µm` : "—"} />
+                  <MeshStat label="Grid" value={String(mesh.grid_dimensions ?? "—")} />
                 </div>
               )}
             </div>
@@ -413,7 +447,7 @@ export default function View3D() {
 
         <div className="pointer-events-none absolute bottom-4 left-4">
           <div className="glass rounded-full border border-line px-3 py-1.5 text-2xs text-fg-subtle shadow-pop">
-            Drag to orbit · scroll to zoom · click a part to inspect
+            Geometry to scale from real µm parameters · drag to orbit · scroll to zoom · click to inspect
           </div>
         </div>
       </div>

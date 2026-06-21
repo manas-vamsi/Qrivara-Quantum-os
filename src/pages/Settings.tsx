@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Palette,
   Bell,
@@ -11,12 +11,15 @@ import {
   Sun,
 } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
+import { comingSoon } from "@/components/common/ComingSoon";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Field, Input, Switch } from "@/components/ui/Form";
 import { Avatar } from "@/components/ui/Avatar";
 import { useAppStore } from "@/store/useAppStore";
+import { useAuthStore } from "@/store/useAuthStore";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const SECTIONS = [
@@ -27,16 +30,21 @@ const SECTIONS = [
   { id: "security", label: "Security", icon: Shield },
 ] as const;
 
+// Solver engines. "Built-in" = QRIVARA's own open-source solvers (always on, no
+// license). The rest are optional open-source integrations not yet wired.
 const SOLVERS = [
-  { name: "Ansys HFSS", desc: "Full-wave 3D electromagnetic solver", connected: true },
-  { name: "Ansys Q3D", desc: "Quasi-static capacitance extraction", connected: true },
-  { name: "AWS Palace", desc: "Open-source finite-element EM solver", connected: true },
-  { name: "Qiskit Metal", desc: "Quantum device design & analysis", connected: false },
-  { name: "scQubits", desc: "Superconducting qubit Hamiltonians", connected: false },
+  { name: "QRIVARA 3-D FEM", desc: "Built-in electrostatic field solver (capacitance / Q3D-class)", connected: true },
+  { name: "QRIVARA Quantum Engine", desc: "Built-in transmon/fluxonium diagonalization, decoherence, QEC", connected: true },
+  { name: "AWS Palace", desc: "Open-source full-wave EM (eigenmode / S-params) — integration planned", connected: false },
+  { name: "Qiskit Metal", desc: "Open-source device design & GDS — integration planned", connected: false },
+  { name: "scQubits", desc: "Open-source qubit Hamiltonians — integration planned", connected: false },
 ];
 
 export default function Settings() {
   const { theme, setTheme, profile, setProfile } = useAppStore();
+  const me = useAuthStore((s) => s.me);
+  const refreshUsers = useAuthStore((s) => s.refreshUsers);
+
   const [section, setSection] =
     useState<(typeof SECTIONS)[number]["id"]>("appearance");
   const [notif, setNotif] = useState({
@@ -47,13 +55,66 @@ export default function Settings() {
   });
 
   // Account form (controlled draft + save feedback)
-  const [draft, setDraft] = useState(profile);
+  const getProfileData = () => ({
+    name: me?.name ?? profile.name,
+    email: me?.email ?? profile.email,
+    role: me?.role ?? profile.role,
+    org: me?.org ?? profile.org,
+    handle: me?.handle ?? profile.handle ?? "",
+    headline: me?.headline ?? profile.headline ?? "",
+    bio: me?.bio ?? profile.bio ?? "",
+    institution: me?.institution ?? profile.institution ?? "",
+    discoverable: me?.discoverable ?? profile.discoverable ?? true,
+  });
+
+  const [draft, setDraft] = useState(getProfileData);
   const [saved, setSaved] = useState(false);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(profile);
-  const saveProfile = () => {
-    setProfile(draft);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2200);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(getProfileData());
+  }, [me]);
+
+  const initialData = getProfileData();
+  const dirty = JSON.stringify(draft) !== JSON.stringify(initialData);
+
+  const saveProfile = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const updatedUser = await api.updateProfile({
+        name: draft.name,
+        role: draft.role,
+        org: draft.org,
+        headline: draft.headline,
+        bio: draft.bio,
+        institution: draft.institution,
+        discoverable: draft.discoverable,
+      });
+
+      // Update state in stores
+      useAuthStore.setState({ me: updatedUser });
+      setProfile({
+        name: updatedUser.name,
+        email: updatedUser.email,
+        role: updatedUser.role,
+        org: updatedUser.org,
+        handle: updatedUser.handle,
+        headline: updatedUser.headline,
+        bio: updatedUser.bio,
+        institution: updatedUser.institution,
+        discoverable: updatedUser.discoverable,
+      });
+
+      await refreshUsers();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2200);
+    } catch (err: any) {
+      setError(err.message || "Failed to save profile");
+    } finally {
+      setBusy(false);
+    }
   };
 
   // Security form feedback
@@ -183,7 +244,7 @@ export default function Settings() {
                     </h3>
                     <p className="text-sm text-fg-subtle">{draft.role}</p>
                   </div>
-                  <Button variant="outline" size="sm" className="ml-auto" onClick={() => alert("Avatar upload coming soon")}>
+                  <Button variant="outline" size="sm" className="ml-auto" onClick={() => comingSoon("Avatar upload")}>
                     Change avatar
                   </Button>
                 </div>
@@ -198,7 +259,8 @@ export default function Settings() {
                     <Input
                       type="email"
                       value={draft.email}
-                      onChange={(e) => setDraft({ ...draft, email: e.target.value })}
+                      disabled
+                      className="cursor-not-allowed opacity-60"
                     />
                   </Field>
                   <Field label="Role">
@@ -213,7 +275,44 @@ export default function Settings() {
                       onChange={(e) => setDraft({ ...draft, org: e.target.value })}
                     />
                   </Field>
+                  <Field label="Headline" className="sm:col-span-2">
+                    <Input
+                      value={draft.headline}
+                      onChange={(e) => setDraft({ ...draft, headline: e.target.value })}
+                      placeholder="e.g., PhD Candidate / Senior Qubit Designer"
+                    />
+                  </Field>
+                  <Field label="Institution" className="sm:col-span-2">
+                    <Input
+                      value={draft.institution}
+                      onChange={(e) => setDraft({ ...draft, institution: e.target.value })}
+                      placeholder="e.g., Delft University / NexVista"
+                    />
+                  </Field>
+                  <Field label="Bio" className="sm:col-span-2">
+                    <Input
+                      value={draft.bio}
+                      onChange={(e) => setDraft({ ...draft, bio: e.target.value })}
+                      placeholder="Brief bio about your quantum hardware work…"
+                    />
+                  </Field>
                 </div>
+
+                <div className="flex items-center justify-between border-t border-line/60 pt-4 pb-2">
+                  <div>
+                    <p className="text-sm font-medium text-fg">Discoverable in search</p>
+                    <p className="text-2xs text-fg-subtle">
+                      Allow other researchers to find you by your name, handle, or email.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={draft.discoverable}
+                    onChange={(v) => setDraft({ ...draft, discoverable: v })}
+                  />
+                </div>
+
+                {error && <p className="text-xs text-error">{error}</p>}
+
                 <div className="flex items-center justify-end gap-3 border-t border-line pt-4">
                   {saved && (
                     <span className="flex items-center gap-1.5 text-sm font-medium text-success">
@@ -222,12 +321,12 @@ export default function Settings() {
                   )}
                   <Button
                     variant="ghost"
-                    onClick={() => setDraft(profile)}
-                    disabled={!dirty}
+                    onClick={() => setDraft(getProfileData())}
+                    disabled={!dirty || busy}
                   >
                     Cancel
                   </Button>
-                  <Button onClick={saveProfile} disabled={!dirty}>
+                  <Button onClick={saveProfile} disabled={!dirty || busy} loading={busy}>
                     Save changes
                   </Button>
                 </div>
@@ -265,7 +364,7 @@ export default function Settings() {
                     <Button
                       variant={s.connected ? "ghost" : "outline"}
                       size="sm"
-                      onClick={() => alert(`Integration settings for ${s.name}`)}
+                      onClick={() => comingSoon(`${s.name} integration`)}
                     >
                       {s.connected ? "Manage" : "Connect"}
                     </Button>
@@ -317,7 +416,7 @@ export default function Settings() {
                       </p>
                     </div>
                   </div>
-                  <Button variant="outline" size="sm" onClick={() => alert("2FA settings coming soon")}>
+                  <Button variant="outline" size="sm" onClick={() => comingSoon("Two-factor authentication")}>
                     Manage
                   </Button>
                 </div>
@@ -338,12 +437,7 @@ export default function Settings() {
                       <Check className="h-4 w-4" strokeWidth={2.5} /> Password updated
                     </span>
                   )}
-                  <Button
-                    onClick={() => {
-                      setPwSaved(true);
-                      setTimeout(() => setPwSaved(false), 2200);
-                    }}
-                  >
+                  <Button onClick={() => comingSoon("Password change")}>
                     Update password
                   </Button>
                 </div>

@@ -31,6 +31,7 @@ import { Select } from "@/components/ui/Form";
 import { AvatarGroup } from "@/components/ui/Avatar";
 import { EmptyState } from "@/components/common/EmptyState";
 import { CHART, axisProps, ChartTooltip } from "@/lib/chartTheme";
+import { PreviewBadge, ComingSoonOverlay } from "@/components/common/ComingSoon";
 import { useDataStore } from "@/store/useDataStore";
 import { useAppStore } from "@/store/useAppStore";
 import { api } from "@/lib/api";
@@ -220,7 +221,7 @@ export default function Results() {
 
           {/* Graphs */}
           <div className="grid gap-6 lg:grid-cols-2">
-            <ChartCard title="Frequency vs version" subtitle="Design evolution">
+            <ChartCard title="Frequency vs version" subtitle="Design evolution" preview>
               <ResponsiveContainer width="100%" height={250}>
                 <LineChart data={liveResults.evolution} margin={{ top: 10, right: 10, left: -12, bottom: 0 }}>
                   <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
@@ -232,7 +233,7 @@ export default function Results() {
               </ResponsiveContainer>
             </ChartCard>
 
-            <ChartCard title="Optimization convergence" subtitle="Best score per iteration">
+            <ChartCard title="Optimization convergence" subtitle="Best score per iteration" preview>
               <ResponsiveContainer width="100%" height={250}>
                 <AreaChart data={liveResults.optHistory} margin={{ top: 10, right: 10, left: -14, bottom: 0 }}>
                   <defs>
@@ -250,7 +251,7 @@ export default function Results() {
               </ResponsiveContainer>
             </ChartCard>
 
-            <ChartCard title="Parameter sweep" subtitle="Coupling g vs flux Φ/Φ₀">
+            <ChartCard title="Parameter sweep" subtitle="Coupling g vs flux Φ/Φ₀" preview>
               <ResponsiveContainer width="100%" height={250}>
                 <LineChart data={liveResults.couplingSweep} margin={{ top: 10, right: 10, left: -12, bottom: 0 }}>
                   <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
@@ -322,14 +323,23 @@ export default function Results() {
   );
 }
 
-function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function ChartCard({ title, subtitle, children, preview }: { title: string; subtitle?: string; children: React.ReactNode; preview?: boolean }) {
   return (
     <Card>
       <div className="px-5 pt-5">
-        <h3 className="font-display text-[0.95rem] font-semibold tracking-tight">{title}</h3>
+        <h3 className="flex items-center gap-2 font-display text-[0.95rem] font-semibold tracking-tight">
+          {title}
+          {preview && <PreviewBadge />}
+        </h3>
         {subtitle && <p className="text-sm text-fg-subtle">{subtitle}</p>}
       </div>
-      <CardContent className="pt-4">{children}</CardContent>
+      {preview ? (
+        <ComingSoonOverlay label={title}>
+          <CardContent className="pt-4">{children}</CardContent>
+        </ComingSoonOverlay>
+      ) : (
+        <CardContent className="pt-4">{children}</CardContent>
+      )}
     </Card>
   );
 }

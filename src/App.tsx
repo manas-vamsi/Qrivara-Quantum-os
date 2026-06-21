@@ -8,6 +8,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { LogoMark } from "@/components/common/Logo";
 import { useAppStore, applyTheme } from "@/store/useAppStore";
 import { useDataStore } from "@/store/useDataStore";
+import { useAuthStore } from "@/store/useAuthStore";
 
 // Public landing page (front door) loads eagerly.
 import Landing from "@/pages/Landing";
@@ -24,6 +25,7 @@ const Results = lazy(() => import("@/pages/Results"));
 const Fabrication = lazy(() => import("@/pages/Fabrication"));
 const Experiments = lazy(() => import("@/pages/Experiments"));
 const Collaboration = lazy(() => import("@/pages/Collaboration"));
+const Profile = lazy(() => import("@/pages/Profile"));
 const ComponentLibrary = lazy(() => import("@/pages/ComponentLibrary"));
 const MaterialLibrary = lazy(() => import("@/pages/MaterialLibrary"));
 const Settings = lazy(() => import("@/pages/Settings"));
@@ -62,6 +64,11 @@ const router = createBrowserRouter([
       { path: "fabrication", element: withSuspense(<Fabrication />) },
       { path: "experiments", element: withSuspense(<Experiments />) },
       { path: "collaboration", element: withSuspense(<Collaboration />) },
+      // Messages & Teams now live as tabs inside Collaboration; keep the old
+      // paths as redirects so notification deep-links still resolve.
+      { path: "messages", element: <Navigate to="/app/collaboration?tab=messages" replace /> },
+      { path: "teams", element: <Navigate to="/app/collaboration?tab=teams" replace /> },
+      { path: "u/:userId", element: withSuspense(<Profile />) },
       { path: "components", element: withSuspense(<ComponentLibrary />) },
       { path: "materials", element: withSuspense(<MaterialLibrary />) },
       { path: "settings", element: withSuspense(<Settings />) },
@@ -75,15 +82,24 @@ export default function App() {
   const theme = useAppStore((s) => s.theme);
   const fetchProjects = useDataStore((s) => s.fetchProjects);
   const fetchComponents = useDataStore((s) => s.fetchComponents);
+  const initAuth = useAuthStore((s) => s.init);
+  const startPresence = useAuthStore((s) => s.startPresence);
 
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
 
   useEffect(() => {
-    fetchProjects();
-    fetchComponents();
-  }, [fetchProjects, fetchComponents]);
+    // Resolve the current (dev-impersonated) user first so project visibility
+    // is fetched as that identity, then load the workspace.
+    initAuth().finally(() => {
+      fetchProjects();
+      fetchComponents();
+    });
+  }, [initAuth, fetchProjects, fetchComponents]);
+
+  // Keep the presence heartbeat running for the whole session.
+  useEffect(() => startPresence(), [startPresence]);
 
   return <RouterProvider router={router} />;
 }

@@ -72,11 +72,13 @@ def coupling_g(cg: float, cq: float, cr: float, fq: float, fr: float) -> float:
     return 0.5 * beta * math.sqrt(max(fq * fr, 0.0)) * 1000
 
 
-def dispersive_shift(g: float, fq: float, fr: float, anh: float, full: bool = True) -> float:
-    """Dispersive (cross-Kerr) shift χ [MHz]. The RWA term is g²·α/(Δ(Δ+α)); with
-    ``full`` we add the counter-rotating Σ term (Koch 2007 eq.3.8 / Krantz 2019
-    §IV). The counter-rotating correction is modest at typical detunings
-    (~3–8% at 5/7 and 4/7 GHz) but grows as Σ shrinks; keep it for fidelity.
+def dispersive_shift(g: float, fq: float, fr: float, anh: float, full: bool = False) -> float:
+    """Dispersive (cross-Kerr) shift χ [MHz]. The canonical transmon result is the
+    RWA value χ = g²·α/(Δ(Δ+α)) (Koch 2007 §IV-B; Krantz 2019 Eq. 50) — this is the
+    default and what experiments report. Setting ``full=True`` adds an *optional*,
+    leading-order counter-rotating (Bloch–Siegert-type) estimate ~g²·α/(Σ(Σ+α)),
+    Σ = ωq+ωr; it is a small heuristic correction (~2–8% at typical detunings), not
+    a rigorously derived term, so it is off by default.
     g, fq, fr in GHz/MHz-consistent units; anh in MHz."""
     delta = (fq - fr) * 1000
     if abs(delta) < 1e-6 or abs(delta + anh) < 1e-6:
@@ -274,10 +276,25 @@ def quasiparticle_t1(f01_ghz: float, x_qp: float = 1e-6, tc_k: float = 1.2) -> f
     return (1.0 / gamma) * 1e6 if gamma > 0 else math.inf
 
 
-def transmon_freq_vs_flux(ej_sum: float, ec: float, flux_ratio: float) -> float:
-    """f01 [GHz] of a symmetric SQUID transmon at external flux Φ/Φ0 = flux_ratio:
-    EJ(Φ) = EJΣ·|cos(πΦ/Φ0)|, then the exact transmon f01."""
-    ej_eff = ej_sum * abs(math.cos(math.pi * flux_ratio))
+def squid_ej(ej_sum: float, flux_ratio: float, asymmetry: float = 0.0) -> float:
+    """Effective Josephson energy of an (a)symmetric SQUID at external flux
+    Φ/Φ0 = flux_ratio (Koch 2007 eq.2.18 / Krantz 2019):
+
+        EJ(Φ) = EJΣ·√(cos²(πΦ/Φ0) + d²·sin²(πΦ/Φ0)),
+
+    with junction asymmetry d = (EJ2−EJ1)/(EJ1+EJ2) ∈ [0,1]. d=0 → symmetric
+    SQUID (EJΣ·|cos|, tunes to zero at Φ=Φ0/2); d>0 lifts the lower sweet spot to
+    EJΣ·d so the qubit stays operable. The √-form avoids the tan() singularity."""
+    c = math.cos(math.pi * flux_ratio)
+    s = math.sin(math.pi * flux_ratio)
+    return ej_sum * math.sqrt(max(c * c + asymmetry * asymmetry * s * s, 0.0))
+
+
+def transmon_freq_vs_flux(ej_sum: float, ec: float, flux_ratio: float,
+                          asymmetry: float = 0.0) -> float:
+    """f01 [GHz] of a SQUID transmon at external flux Φ/Φ0, from the exact
+    charge-basis spectrum at the (a)symmetric-SQUID EJ(Φ) (see ``squid_ej``)."""
+    ej_eff = squid_ej(ej_sum, flux_ratio, asymmetry)
     f, _ = transmon_f01_anharm(max(ej_eff, 1e-6), ec)
     return f
 
@@ -316,11 +333,12 @@ def flux_noise_dephasing(ej_sum: float, ec: float, flux_ratio: float,
 def photon_shot_noise_dephasing(chi_mhz: float, kappa_mhz: float, n_bar: float | None = None,
                                 fr_ghz: float = 7.1, temp_k: float = 0.05) -> float:
     """Measurement-induced (residual-photon) dephasing Tφ [µs] in the dispersive
-    regime (Clerk & Utami 2007; Krantz 2019 §III-B):
-    Γφ = (κ/2)·Re[√((1+i·2χ/κ)² + 8iχ·n̄/κ) − 1], which reduces to the canonical
-    weak-drive rate 8χ²n̄/κ. ``chi_mhz`` is the cross-Kerr χ (as returned by
-    ``dispersive_shift``); the formula uses the full state-dependent resonator
-    splitting 2χ. n̄ from the readout mode's thermal occupation if not given."""
+    regime (Gambetta 2006 PRA 74 042318; Clerk RMP 2010; Krantz 2019 §III-B):
+    Γφ = (κ/2)·Re[√((1+i·2χ/κ)² + 8iχ·n̄/κ) − 1]. With χ the per-state (half) shift
+    this reduces to the canonical weak-drive rate Γφ → 4χ²·n̄(1+n̄)/κ (κ ≫ χ; ≈
+    4χ²n̄/κ for small n̄). ``chi_mhz`` is the dispersive χ from ``dispersive_shift``;
+    the resonator |0⟩/|1⟩ frequencies differ by 2χ. n̄ from the readout mode's
+    thermal occupation if not given."""
     two_chi = 2 * 2 * math.pi * chi_mhz * 1e6          # full splitting 2χ [rad/s]
     kappa = 2 * math.pi * max(kappa_mhz, 1e-9) * 1e6
     if n_bar is None:
@@ -345,8 +363,9 @@ def gate_error_1q(t1_us: float, t2_us: float, t_gate_ns: float = 20.0) -> float:
 def gate_error_2q(t1a_us: float, t2a_us: float, t1b_us: float, t2b_us: float,
                   t_gate_ns: float = 200.0, zz_khz: float = 0.0) -> dict:
     """Coherence-limited 2-qubit gate error: incoherent part (t_g/3)·Σ(1/T1+1/T2)
-    over both qubits, plus a coherent residual-ZZ phase error (π·ζ·t_g)²/2 from the
-    static ZZ rate ζ (Krantz 2019 §VI). Returns the parts + fidelity."""
+    over both qubits, plus a coherent residual-ZZ error ½·θ² (small-error bound)
+    from the phase θ = 2π·ζ·t_g the static ZZ rate ζ winds up over the gate
+    (Krantz 2019 §VI). Returns the parts + fidelity."""
     tg = max(t_gate_ns, 0.0) * 1e-3
     rates = sum(1.0 / t for t in (t1a_us, t2a_us, t1b_us, t2b_us) if t and t > 0)
     coherence = (tg / 3.0) * rates
@@ -451,3 +470,392 @@ def tls_tan_delta(tan_d0: float, f_ghz: float, temp_k: float, n_photons: float =
     th = math.tanh(H * max(f_ghz, 0.0) * 1e9 / (2 * KB * max(temp_k, 1e-3)))
     sat = (1.0 + max(n_photons, 0.0) / max(n_c, 1e-9)) ** beta
     return tan_d0 * th / sat
+
+
+# ── TIME-DOMAIN TWO-QUBIT GATES ──────────────────────────────────────────────────
+# Genuine Schrödinger-equation simulation of CZ / iSWAP / cross-resonance gates on
+# two capacitively-coupled transmons, each kept as a 3-level (qutrit) Duffing
+# oscillator so leakage out of the computational subspace is captured. The effective
+# Hamiltonian is built in a common rotating frame at f_ref with the RWA exchange
+# coupling g(a1†a2 + a1a2†); since it is Hermitian and time-independent, the exact
+# propagator U(t) = W·diag(e^{−iλt})·W† follows from a single eigendecomposition.
+# Sources: Strauch 2003 (CZ via |11⟩–|02⟩), DiCarlo 2009, Sheldon 2016 (CR),
+# Krantz 2019 §VI, Pedersen 2007 (leakage-aware average gate fidelity).
+_COMP_IDX = [0, 1, 3, 4]   # |00>,|01>,|10>,|11> in the 3⊗3 (q1 outer, q2 inner) basis
+
+
+def _destroy(d: int) -> np.ndarray:
+    """Bosonic annihilation operator truncated to d levels."""
+    return np.diag(np.sqrt(np.arange(1, d, dtype=float)), 1).astype(complex)
+
+
+def _two_transmon_h(f1: float, f2: float, anh1_mhz: float, anh2_mhz: float,
+                    g_mhz: float, f_ref: float, levels: int = 3,
+                    drive_mhz: float = 0.0) -> np.ndarray:
+    """Effective two-transmon Hamiltonian [rad/ns] in the frame rotating at f_ref.
+    Frequencies GHz, anharmonicities MHz, coupling/drive MHz. Each transmon is a
+    Duffing oscillator H_i = Δ_i n_i + (α_i/2) n_i(n_i−1); coupling is the RWA
+    exchange g(a1†a2 + a1a2†); an optional resonant drive on qubit 1 (cross-resonance)
+    appears as the static term (Ω/2)(a1 + a1†) in this frame."""
+    d = levels
+    a = _destroy(d)
+    ad = a.conj().T
+    nop = ad @ a
+    eye = np.eye(d, dtype=complex)
+    a1, a1d, n1 = np.kron(a, eye), np.kron(ad, eye), np.kron(nop, eye)
+    a2, a2d, n2 = np.kron(eye, a), np.kron(eye, ad), np.kron(eye, nop)
+    big = np.eye(d * d, dtype=complex)
+    tp = 2.0 * math.pi
+    d1, d2 = tp * (f1 - f_ref), tp * (f2 - f_ref)
+    al1, al2 = tp * anh1_mhz / 1000.0, tp * anh2_mhz / 1000.0
+    g = tp * g_mhz / 1000.0
+    ham = (d1 * n1 + d2 * n2
+           + 0.5 * al1 * (n1 @ (n1 - big)) + 0.5 * al2 * (n2 @ (n2 - big))
+           + g * (a1d @ a2 + a1 @ a2d))
+    if drive_mhz:
+        ham += 0.5 * tp * drive_mhz / 1000.0 * (a1 + a1d)
+    return ham
+
+
+def _avg_gate_fidelity(m4: np.ndarray, v4: np.ndarray, z_grid: int = 16) -> float:
+    """Leakage-aware average gate fidelity of the 4×4 computational block m4 against
+    the ideal 2-qubit unitary v4 (Pedersen 2007: F = (|Tr E|² + Tr E†E)/(d(d+1)),
+    d=4, E = V†·M). Maximised over virtual single-qubit Z corrections (free frame
+    updates), so only the genuine 2-qubit error is scored."""
+    d = 4
+    phis = np.linspace(0.0, 2.0 * math.pi, z_grid, endpoint=False)
+    best = 0.0
+    for p1 in phis:
+        for p2 in phis:
+            z = np.diag([1.0, np.exp(1j * p2), np.exp(1j * p1),
+                         np.exp(1j * (p1 + p2))])
+            e = v4.conj().T @ (z @ m4)
+            tr = np.trace(e)
+            f = (abs(tr) ** 2 + np.trace(e.conj().T @ e).real) / (d * (d + 1))
+            if f > best:
+                best = f
+    return float(min(max(best, 0.0), 1.0))
+
+
+def _zx_pi2() -> np.ndarray:
+    """Target unitary for cross-resonance: ZX(π/2) = exp(−i(π/4) Z⊗X) — the native
+    CR entangler, locally equivalent to CNOT. (Z⊗X)²=I ⇒ = (I − i Z⊗X)/√2."""
+    zx = np.array([[0, 1, 0, 0], [1, 0, 0, 0],
+                   [0, 0, 0, -1], [0, 0, -1, 0]], dtype=complex)
+    return (np.eye(4, dtype=complex) - 1j * zx) / math.sqrt(2.0)
+
+
+_GATE_TARGETS = {
+    "iswap": np.array([[1, 0, 0, 0], [0, 0, 1j, 0],
+                       [0, 1j, 0, 0], [0, 0, 0, 1]], dtype=complex),
+    "cz": np.diag([1.0, 1.0, 1.0, -1.0]).astype(complex),
+}
+
+
+def simulate_two_qubit_gate(gate: str, f1_ghz: float, f2_ghz: float,
+                            anh1_mhz: float = -310.0, anh2_mhz: float = -310.0,
+                            g_mhz: float = 12.0, drive_mhz: float = 50.0,
+                            t_max_ns: float | None = None, n_steps: int = 160) -> dict:
+    """Time-domain simulation of a two-transmon entangling gate. Propagates the EXACT
+    unitary U(t) (constant effective Hamiltonian in the RWA rotating frame → exact
+    eigendecomposition propagator, not a numerical ODE step) over a window of gate
+    durations, projects onto the 4-dim computational subspace, and reports the operating
+    point (best gate time) by leakage-aware average gate fidelity. Returns the fidelity,
+    leakage, conditional phase (CZ), the achieved 2-qubit unitary at the optimum, and
+    population trajectories for the UI. Scope/idealizations (honest): RWA exchange
+    coupling, square (unshaped) drive, and instantaneous ideal echo π-pulses — so CR is
+    an un-calibrated estimate (DRAG / rotary echo lift it toward 99%); CZ and iSWAP are
+    near-exact for the resonant/diabatic mechanisms modeled.
+
+    Gate setup (all physically motivated):
+      • iSWAP  — tunable qubits brought on-resonance (f→f̄); resonant exchange swaps
+                 |01⟩↔|10⟩ in t≈1/(4g).
+      • CZ     — qubit 1 flux-tuned to the |11⟩–|02⟩ resonance (f1=f2+α2); the avoided
+                 crossing winds a conditional π phase (Strauch 2003).
+      • CR     — fixed-frequency; qubit 1 driven at f2 (static in the f2 frame); the
+                 g·Ω cross-resonance term builds ZX(θ) (Sheldon 2016)."""
+    gate = (gate or "cz").lower().strip()
+    if gate in ("cross_resonance", "cnot", "cx"):
+        gate = "cr"
+    g_ghz = max(g_mhz / 1000.0, 1e-6)
+
+    # gate-specific frame, operating frequencies, target, default duration, init state.
+    # `propagator(t)` returns the full 9×9 unitary at total gate time t [ns].
+    if gate == "iswap":
+        fbar = 0.5 * (f1_ghz + f2_ghz)
+        f1o, f2o, fref = fbar, fbar, fbar
+        target, drive = _GATE_TARGETS["iswap"], 0.0
+        t_default, init = 1.0 / (4.0 * g_ghz), 1            # |01>
+        ham = _two_transmon_h(f1o, f2o, anh1_mhz, anh2_mhz, g_mhz, fref)
+        lam, w = np.linalg.eigh(ham)
+        wh = w.conj().T
+        def propagator(t):
+            return (w * np.exp(-1j * lam * t)) @ wh
+    elif gate == "cr":
+        f1o, f2o, fref = f1_ghz, f2_ghz, f2_ghz
+        target, drive = _zx_pi2(), drive_mhz
+        # Echoed cross-resonance: CR(+Ω) τ → Xπ(ctrl) → CR(−Ω) τ → Xπ(ctrl), τ=t/2.
+        # The echo cancels the IX/ZI/ZZ terms and leaves ZX(θ) (Sheldon 2016).
+        hp = _two_transmon_h(f1o, f2o, anh1_mhz, anh2_mhz, g_mhz, fref, drive_mhz=drive)
+        hm = _two_transmon_h(f1o, f2o, anh1_mhz, anh2_mhz, g_mhz, fref, drive_mhz=-drive)
+        lp, wp = np.linalg.eigh(hp); wph = wp.conj().T
+        lm, wm = np.linalg.eigh(hm); wmh = wm.conj().T
+        rx = np.array([[0, -1j, 0], [-1j, 0, 0], [0, 0, 1]], dtype=complex)  # π on ctrl {0,1}
+        xc = np.kron(rx, np.eye(3, dtype=complex))
+        def propagator(t):
+            tau = 0.5 * t
+            up = (wp * np.exp(-1j * lp * tau)) @ wph
+            um = (wm * np.exp(-1j * lm * tau)) @ wmh
+            return xc @ um @ xc @ up
+        # ZX rate (Magesan/Sheldon) → π/2 time; echo doubles it, so scan a wide window.
+        delta = (f1_ghz - f2_ghz) or 1e-3
+        alpha = anh1_mhz / 1000.0
+        zx_ghz = abs(g_ghz * (drive / 1000.0) / delta
+                     * (alpha / ((alpha + delta) or 1e-3)))
+        # scan a few ZX periods so the π/2 operating point is inside the window
+        t_default = 1.0 / zx_ghz if zx_ghz > 1e-6 else 300.0
+        init = 3                                            # |10>
+    else:  # cz (default)
+        gate = "cz"
+        f1o, f2o, fref = f2_ghz + anh2_mhz / 1000.0, f2_ghz, f2_ghz
+        target, drive = _GATE_TARGETS["cz"], 0.0
+        t_default, init = 1.0 / (math.sqrt(2.0) * g_ghz), 4  # |11>
+        ham = _two_transmon_h(f1o, f2o, anh1_mhz, anh2_mhz, g_mhz, fref)
+        lam, w = np.linalg.eigh(ham)
+        wh = w.conj().T
+        def propagator(t):
+            return (w * np.exp(-1j * lam * t)) @ wh
+
+    t_max = float(t_max_ns) if t_max_ns else max(min(t_default * 2.0, 2000.0), 2.0)
+    n_steps = int(min(max(n_steps, 20), 400))
+
+    best = {"fidelity": -1.0, "t_ns": 0.0, "leakage": 1.0, "phase_deg": 0.0, "m4": None}
+    traj = []
+    for s in range(n_steps + 1):
+        t = t_max * s / n_steps
+        u = propagator(t)                                   # full U(t)
+        m4 = u[np.ix_(_COMP_IDX, _COMP_IDX)]                # computational block
+        leak = 1.0 - float(np.trace(m4.conj().T @ m4).real) / 4.0
+        if s > 0:                                           # skip trivial t=0
+            fid = _avg_gate_fidelity(m4, target)
+            if fid > best["fidelity"]:
+                cond = float(np.angle(u[4, 4]) - np.angle(u[1, 1])
+                             - np.angle(u[3, 3]) + np.angle(u[0, 0]))
+                best.update(fidelity=fid, t_ns=t, leakage=max(leak, 0.0),
+                            phase_deg=math.degrees(cond) % 360.0, m4=m4)
+        col = np.abs(u[:, init]) ** 2                       # populations from init state
+        traj.append({
+            "t_ns": round(t, 3),
+            "p00": round(float(col[0]), 4), "p01": round(float(col[1]), 4),
+            "p10": round(float(col[3]), 4), "p11": round(float(col[4]), 4),
+            "leak": round(float(1.0 - col[[0, 1, 3, 4]].sum()), 4),
+        })
+
+    m4 = best["m4"] if best["m4"] is not None else np.eye(4, dtype=complex)
+    note = {
+        "iswap": "Resonant exchange iSWAP; residual error from level shifts during the swap.",
+        "cz": "Diabatic CZ at the |11>-|02> resonance (f1=f2+a2); residual from leakage into |02>.",
+        "cr": "Un-calibrated echoed cross-resonance (RWA, square pulse, ideal echo). "
+              "DRAG + rotary echo + amplitude calibration lift fidelity toward 99% (Sheldon 2016).",
+    }[gate]
+    return {
+        "gate": gate.upper() if gate != "cr" else "Cross-Resonance (ZX90)",
+        "note": note,
+        "fidelity": round(best["fidelity"], 6),
+        "fidelity_pct": round(100.0 * best["fidelity"], 4),
+        "leakage": best["leakage"],
+        "leakage_pct": round(100.0 * best["leakage"], 4),
+        "t_gate_ns": round(best["t_ns"], 3),
+        "conditional_phase_deg": round(best["phase_deg"], 2),
+        "f1_op_GHz": round(f1o, 4), "f2_op_GHz": round(f2o, 4),
+        "g_MHz": round(g_mhz, 3), "drive_MHz": round(drive, 3) if gate == "cr" else None,
+        "U_abs": [[round(float(abs(m4[i, j])), 4) for j in range(4)] for i in range(4)],
+        "trajectory": traj,
+        "init_state": ["00", "01", "10", "11"][_COMP_IDX.index(init)],
+    }
+
+
+# ── FREQUENCY COLLISIONS — fixed-frequency CR lattices ───────────────────────────
+# IBM heavy-hex / cross-resonance collision model (Hertzberg et al., npj QI 7, 129
+# (2021), arXiv:2009.00781; tolerance bounds per IBM US Patent 12,039,402 Table 2).
+# For fixed-frequency transmons each 0->1 frequency is set at fabrication, so certain
+# frequency relationships between a CR control, its target, and spectators cause
+# >~1% gate error. Junction-resistance spread scatters the frequencies, so the
+# manufacturable YIELD = fraction of sampled chips with zero collisions. All
+# frequencies/margins in MHz; anharmonicity δ is negative (|δ| ≈ 330 MHz).
+# IBM-class tolerance bounds (Hertzberg 2021; US Patent 12,039,402 Table 2), order-of-MHz.
+# Exact values drift a few MHz across IBM publications as calibration improved; tunable.
+DEFAULT_COLLISION_MARGINS = {
+    "m1": 17.0, "m2": 4.0, "m3": 30.0, "m4": 30.0,   # nearest-neighbour (control–target)
+    "m5": 17.0, "m6": 25.0, "m7": 8.5,               # spectator (next-nearest-neighbour)
+}
+
+# Human-readable names for each collision type (for UI breakdowns).
+COLLISION_TYPE_NAMES = {
+    1: "Type 1 · 01–01 resonance",
+    2: "Type 2 · 01–02/2 (two-photon)",
+    3: "Type 3 · 01–12 (target hits control 1→2)",
+    4: "Type 4 · slow gate (over-detuned)",
+    5: "Type 5 · spectator 01–01",
+    6: "Type 6 · spectator 01–12",
+    7: "Type 7 · spectator 2-photon",
+}
+
+
+def pair_collision_types(f_i: float, f_j: float, alpha_mhz: float,
+                         m: dict | None = None) -> set:
+    """Nearest-neighbour (CR control–target) collision types for a connected pair.
+    Frequencies in MHz; α<0. Returns the violated types ⊆ {1,2,3,4}."""
+    m = m or DEFAULT_COLLISION_MARGINS
+    d = abs(alpha_mhz)
+    diff = abs(f_i - f_j)
+    out = set()
+    if diff <= m["m1"]:                       # 01–01 (near-degenerate)
+        out.add(1)
+    if abs(diff - d / 2.0) <= m["m2"]:        # 01–02/2 (two-photon)
+        out.add(2)
+    if abs(diff - d) <= m["m3"]:              # 01–12 (target ↔ control 1→2)
+        out.add(3)
+    if diff >= d + m["m4"]:                   # slow gate (detuning beyond α)
+        out.add(4)
+    return out
+
+
+def spectator_collision_types(f_j: float, f_i: float, f_k: float, alpha_mhz: float,
+                              m: dict | None = None) -> set:
+    """Spectator (next-nearest-neighbour) collision types for a triplet where control
+    j is connected to both i and k. Returns the violated types ⊆ {5,6,7}. The
+    f_j≥f_i OR f_j≥f_k guard on types 5/7 follows the patent screen (Table 2): a
+    collision exists if j can act as control for *either* bond — the conservative
+    (yield-safe) reading. Type 6 is intentionally guard-free (depends only on the two
+    spectators' relative frequency, not the control's position)."""
+    m = m or DEFAULT_COLLISION_MARGINS
+    d = abs(alpha_mhz)
+    out = set()
+    if (f_j >= f_i or f_j >= f_k) and abs(f_i - f_k) <= m["m5"]:                 # 5
+        out.add(5)
+    if abs(abs(f_i - f_k) - d) <= m["m6"]:                                       # 6
+        out.add(6)
+    if (f_j >= f_k or f_j >= f_i) and abs(f_j - (f_i + f_k) / 2.0 - d / 2.0) <= m["m7"]:  # 7
+        out.add(7)
+    return out
+
+
+def lattice_collision_yield(targets_mhz, edges, triplets, alpha_mhz: float,
+                            sigma_mhz: float, n_samples: int = 3000,
+                            m: dict | None = None, seed: int = 20240617) -> dict:
+    """Monte-Carlo fabrication yield of a fixed-frequency CR lattice. Each qubit's
+    0→1 frequency is sampled ~ N(target, σ); a chip is a 'pass' only if NONE of the
+    7 collision conditions fire on any edge or spectator triplet. Returns the yield
+    %, per-collision-type incidence, and per-node / per-edge collision probability
+    (for the heat-map). Vectorised over samples with NumPy."""
+    m = m or DEFAULT_COLLISION_MARGINS
+    n = len(targets_mhz)
+    rng = np.random.default_rng(seed)
+    samp = rng.normal(0.0, max(sigma_mhz, 0.0), (n_samples, n)) + np.asarray(targets_mhz, float)
+    d = abs(alpha_mhz)
+    bad = np.zeros(n_samples, dtype=bool)                 # chip has ≥1 collision
+    node_bad = np.zeros((n_samples, n), dtype=bool)       # per-qubit involvement
+    edge_prob = []
+    type_counts = {t: 0 for t in range(1, 8)}
+
+    for (a, b) in edges:
+        diff = np.abs(samp[:, a] - samp[:, b])
+        masks = {
+            1: diff <= m["m1"],
+            2: np.abs(diff - d / 2.0) <= m["m2"],
+            3: np.abs(diff - d) <= m["m3"],
+            4: diff >= d + m["m4"],
+        }
+        any_e = masks[1] | masks[2] | masks[3] | masks[4]
+        for t, msk in masks.items():
+            type_counts[t] += int(msk.sum())
+        bad |= any_e
+        node_bad[:, a] |= any_e
+        node_bad[:, b] |= any_e
+        edge_prob.append(float(any_e.mean()))
+
+    for (j, i, k) in triplets:
+        fj, fi, fk = samp[:, j], samp[:, i], samp[:, k]
+        diff = np.abs(fi - fk)
+        guard = (fj >= fi) | (fj >= fk)
+        masks = {
+            5: guard & (diff <= m["m5"]),
+            6: np.abs(diff - d) <= m["m6"],
+            7: guard & (np.abs(fj - (fi + fk) / 2.0 - d / 2.0) <= m["m7"]),
+        }
+        any_t = masks[5] | masks[6] | masks[7]
+        for t, msk in masks.items():
+            type_counts[t] += int(msk.sum())
+        bad |= any_t
+        for q in (j, i, k):
+            node_bad[:, q] |= any_t
+
+    passed = int((~bad).sum())
+    # type_incidence = EXPECTED NUMBER of type-t collisions per chip (a type can fire on
+    # several edges/triplets), so it may exceed 1 — it is not P(type). Whole-chip yield
+    # ≈ (per-location pass)^(#locations) only under independence; the MC captures the
+    # correlations (a qubit's frequency appears in many edges) exactly.
+    return {
+        "yield_pct": round(100.0 * passed / n_samples, 2),
+        "n_samples": n_samples,
+        "sigma_MHz": round(sigma_mhz, 2),
+        "type_incidence": {t: round(type_counts[t] / n_samples, 4) for t in range(1, 8)},
+        "node_collision_prob": [round(float(node_bad[:, q].mean()), 4) for q in range(n)],
+        "edge_collision_prob": [round(p, 4) for p in edge_prob],
+    }
+
+
+def assign_lattice_frequencies(n: int, adjacency: dict, triplets, alpha_mhz: float,
+                               palette_mhz, m: dict | None = None,
+                               start: int | None = None) -> list:
+    """Greedy collision-aware frequency allocation: visit qubits in BFS order and give
+    each the palette frequency that creates the fewest NOMINAL collisions with its
+    already-assigned neighbours (types 1–4) and spectators (types 5–7). This is the
+    standard fixed-frequency design step (≥3 frequencies needed on heavy-hex). Greedy
+    colouring can get stuck, so the caller restarts from several `start` nodes and
+    keeps the best (see jobs._frequency_collisions)."""
+    m = m or DEFAULT_COLLISION_MARGINS
+    assigned: list = [None] * n
+    # BFS order from `start` (default: the highest-degree node — constrained core first).
+    if start is None:
+        start = max(range(n), key=lambda q: len(adjacency.get(q, ()))) if n else 0
+    order, seen, queue = [], {start}, [start]
+    while queue:
+        q = queue.pop(0)
+        order.append(q)
+        for nb in adjacency.get(q, ()):
+            if nb not in seen:
+                seen.add(nb); queue.append(nb)
+    for q in range(n):                                    # include any disconnected nodes
+        if q not in seen:
+            order.append(q)
+    # precompute which triplets touch each qubit (for spectator nominal scoring)
+    trips_of = {q: [] for q in range(n)}
+    for (jj, ii, kk) in triplets:
+        for q in (jj, ii, kk):
+            trips_of[q].append((jj, ii, kk))
+    for q in order:
+        scored = []
+        for f in palette_mhz:
+            cost = 0
+            for nb in adjacency.get(q, ()):
+                if assigned[nb] is not None:
+                    cost += len(pair_collision_types(f, assigned[nb], alpha_mhz, m))
+            for (jj, ii, kk) in trips_of[q]:
+                vals = {jj: assigned[jj], ii: assigned[ii], kk: assigned[kk]}
+                vals[q] = f
+                if any(v is None for v in vals.values()):
+                    continue
+                cost += len(spectator_collision_types(vals[jj], vals[ii], vals[kk], alpha_mhz, m))
+            scored.append((cost, f))
+        best_cost = min(c for c, _ in scored)
+        tied = [f for c, f in scored if c == best_cost]
+        # tie-break: among equally-good frequencies, maximise the minimum detuning to
+        # already-assigned neighbours so colours spread out (avoids clustering, which
+        # is what made a naive "first match" allocation fail on heavy-hex).
+        nbr_freqs = [assigned[nb] for nb in adjacency.get(q, ()) if assigned[nb] is not None]
+        def spread(f):
+            return min((abs(f - g) for g in nbr_freqs), default=1e9)
+        assigned[q] = max(tied, key=spread)
+    return assigned

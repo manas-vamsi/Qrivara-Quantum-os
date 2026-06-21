@@ -48,18 +48,11 @@ export const NAV_MAIN: NavItem[] = [
     description: "Infinite canvas — drag, connect & edit components",
   },
   {
-    label: "3D View",
-    short: "3D",
-    path: "/app/view3d",
-    icon: Box,
-    description: "3D device geometry, material layers & mesh preview",
-  },
-  {
     label: "Code Studio",
     short: "Code",
     path: "/app/code",
     icon: Code2,
-    description: "Python + Quantum Metal with live bidirectional sync",
+    description: "Python with live bidirectional sync to the canvas",
   },
   {
     label: "Simulation",
@@ -67,6 +60,13 @@ export const NAV_MAIN: NavItem[] = [
     path: "/app/simulation",
     icon: Activity,
     description: "Validation, frequency, capacitance & coupling analysis",
+  },
+  {
+    label: "3D View",
+    short: "3D",
+    path: "/app/view3d",
+    icon: Box,
+    description: "3D device geometry, material layers & mesh preview",
   },
   {
     label: "Optimization",
@@ -102,7 +102,7 @@ export const NAV_MAIN: NavItem[] = [
     short: "Team",
     path: "/app/collaboration",
     icon: Users,
-    description: "Reviews, comments & design sharing",
+    description: "Network, sharing, messages & teams",
   },
 ];
 

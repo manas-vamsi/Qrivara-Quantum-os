@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
 
 from .. import physics
 from ..db import get_session
-from ..models import Project, SimulationJob, Design
+from ..models import Project, SimulationJob, Design, User
+from ..security import get_current_user, require_project_role
 
 router = APIRouter(prefix="/results", tags=["results"])
 
@@ -32,8 +33,9 @@ def _design_metrics(design: "Design | None", project: Project) -> dict:
 
     ec = physics.ec_from_capacitance(c_sigma)
     ej = physics.ej_from_ic(ic)
-    f01 = physics.f01(ej, ec)
-    anh = physics.anharmonicity(ec)               # MHz, negative (= -EC)
+    # exact charge-basis diagonalization — keeps the Results card consistent with the
+    # Hamiltonian / LOM analyses (which use the same exact f01/anharmonicity).
+    f01, anh = physics.transmon_f01_anharm(ej, ec)   # f01 [GHz], anharmonicity [MHz]
     g = physics.coupling_g(cg, c_sigma, cr, f01, fr)
     lj_nh = (physics.PHI0_RED / (ic * 1e-9)) * 1e9  # Josephson inductance from Ic
     lb = physics.loss_budget(_INTERFACES, f01)      # dielectric-limited internal Q
@@ -61,10 +63,12 @@ def _design_metrics(design: "Design | None", project: Project) -> dict:
 
 
 @router.get("/project/{project_id}")
-def project_results(project_id: str, session: Session = Depends(get_session)):
-    p = session.get(Project, project_id)
-    if not p:
-        raise HTTPException(404, "Project not found")
+def project_results(
+    project_id: str,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    p = require_project_role(project_id, user, session, "viewer")
     design = session.exec(
         select(Design).where(Design.project_id == project_id).order_by(Design.created_at)
     ).first()

@@ -8,6 +8,11 @@ export interface Profile {
   email: string;
   role: string;
   org: string;
+  handle?: string | null;
+  headline?: string;
+  bio?: string;
+  institution?: string;
+  discoverable?: boolean;
 }
 
 interface AppState {
@@ -43,6 +48,11 @@ export const useAppStore = create<AppState>()(
         email: "karthik@nexvista.com",
         role: "Lead Quantum Engineer",
         org: "NexVista Quantum Labs",
+        handle: "karthik",
+        headline: "Lead Qubit Designer",
+        bio: "Designing superconducting circuits since 2018.",
+        institution: "NexVista",
+        discoverable: true,
       },
       toggleTheme: () =>
         set((s) => ({ theme: s.theme === "dark" ? "light" : "dark" })),

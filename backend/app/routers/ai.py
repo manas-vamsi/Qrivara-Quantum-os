@@ -11,12 +11,27 @@ from fastapi.responses import StreamingResponse
 from sqlmodel import Session, select
 
 from .. import ai as AI
+from .. import designgen
 from .. import jobs
 from ..db import get_session
 from ..models import Design, Project
 from ..routers.results import _design_metrics
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+
+
+@router.post("/generate-design")
+def generate_design(body: dict):
+    """Natural-language -> a complete, simulatable chip design doc.
+    The frontend creates a project, saves the returned doc, and opens it in the
+    Visual Designer. Always returns a valid {nodes, edges} design (LLM-parsed when
+    available, keyword-parsed otherwise)."""
+    prompt = (body.get("prompt") or "").strip()
+    if not prompt:
+        raise HTTPException(422, "A design prompt is required")
+    if len(prompt) > 2000:
+        raise HTTPException(422, "Prompt too long")
+    return designgen.generate(prompt)
 
 
 def _build_context(project: Project, design: Design | None) -> dict:

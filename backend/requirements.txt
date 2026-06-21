@@ -8,4 +8,20 @@ numpy>=1.26
 scipy>=1.11                      # FEM EM solver (app/fem.py) + Nelder-Mead optimizer (routers/optimization.py)
 psycopg2-binary>=2.9.9          # PostgreSQL driver (used via DATABASE_URL)
 openai>=1.40                    # OpenAI-compatible client for Groq / Gemini / OpenRouter
+# Quantum ecosystem — exact physics + SDK interop. All permissively licensed (BSD/Apache).
+# Lazy-imported + guarded in app/scq.py and app/qiskit_export.py, so the backend still
+# runs if any are absent (the analysis degrades gracefully).
+scqubits>=4.0                   # exact SC-qubit diagonalization (benchmark + coupled_spectrum)
+qutip>=5.0                      # pulse-level gate sim — DRAG-calibrated two-tone CR (app/pulse.py); also an scqubits dep
+qiskit>=1.4                     # Target/BackendV2 export ("digital twin" of the designed chip)
+# qiskit-aer>=0.14              # OPTIONAL — noise-model circuit simulation against the chip
+gmsh>=4.12                      # 3-D meshing for the full-wave EM pipeline (app/geometry.py)
+# Full-wave solve uses the AWS PALACE binary (Apache-2.0), installed SEPARATELY on the
+# worker/HPC image (Spack/Docker — not pip). When absent, eigenmode_fullwave falls back
+# to the analytic LC eigenmode. See docs/QRIVARA_INTEGRATION_ROADMAP.md.
 pytest>=8.0                     # dev only: backend test suite (tests/) — `python -m pytest`
+# OPTIONAL — outbound LLM-message compression to cut provider tokens (app/ai.py
+# auto-uses it if present, safe no-op if not). Rust-backed; NO wheel for Python
+# 3.14 yet, so it is intentionally left commented to keep the base install green.
+# Install manually on Python <=3.12 (incl. the Docker image):  pip install headroom-ai
+# headroom-ai>=0.1
