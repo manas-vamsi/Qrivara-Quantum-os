@@ -12,6 +12,7 @@ export function StatCard({
   icon,
   tone = "primary",
   delta,
+  subtitle,
   spark,
 }: {
   label: string;
@@ -20,10 +21,11 @@ export function StatCard({
   icon?: React.ReactNode;
   tone?: Tone;
   delta?: { value: string; positive?: boolean };
+  subtitle?: string;
   spark?: React.ReactNode;
 }) {
   return (
-    <GlowCard className="p-5">
+    <GlowCard className="flex h-full flex-col p-5">
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-wider text-fg-subtle">
@@ -49,7 +51,9 @@ export function StatCard({
           </div>
         )}
       </div>
-      <div className="mt-3 flex items-center justify-between">
+      {/* Bottom row pinned to the card bottom; the spark slot always reserves
+          its height so the delta/subtitle baseline aligns across every card. */}
+      <div className="mt-auto flex items-center justify-between pt-4">
         {delta ? (
           <span
             className={cn(
@@ -64,10 +68,12 @@ export function StatCard({
             )}
             {delta.value}
           </span>
+        ) : subtitle ? (
+          <span className="text-2xs text-fg-subtle">{subtitle}</span>
         ) : (
           <span />
         )}
-        {spark && <div className="h-8 w-24 opacity-90">{spark}</div>}
+        <div className="h-8 w-24 opacity-90">{spark}</div>
       </div>
     </GlowCard>
   );

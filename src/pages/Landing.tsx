@@ -50,6 +50,7 @@ export default function Landing() {
         <Solution />
         <HowItWorks />
         <Features />
+        <HowToUse />
         <WhyQrivara />
         <TargetUsers />
         <Vision />
@@ -350,37 +351,53 @@ function Solution() {
 }
 
 /* ============================= HOW IT WORKS ============================== */
+/* Guided getting-started: every step says exactly WHAT to do and links straight
+   into the app — so a first-time user is never lost (the COMSOL pain point). */
 function HowItWorks() {
   const steps = [
     {
       n: "01",
       icon: MousePointer2,
       color: "primary" as const,
-      title: "Design",
-      text: "Create superconducting quantum circuits visually using drag-and-drop components or build directly with Python.",
-      list: ["Transmons", "Resonators", "Couplers", "Readout structures", "Control lines"],
+      title: "Design your chip",
+      text: "Drag transmons, resonators, couplers and feedlines onto the canvas — or describe it in plain English and let the AI assistant build the first draft for you.",
+      do: "Open the Visual Designer and drop your first qubit (or click “Generate with AI”).",
+      to: "/app/designer",
+      cta: "Open the Designer",
+      list: ["Transmons", "Resonators", "Couplers", "Readout", "AI generate"],
     },
     {
       n: "02",
       icon: Activity,
       color: "cyan" as const,
-      title: "Simulate",
-      text: "Run frequency analysis, capacitance extraction, coupling analysis, and parameter sweeps without leaving the platform.",
-      tagline: "Instant feedback. Faster iteration. Less manual work.",
+      title: "Simulate (real physics)",
+      text: "Run capacitance extraction on our own 3-D field solver, then the quantum analyses — Hamiltonian, T1/T2 coherence, 2-qubit gate fidelity, readout, frequency collisions. No Ansys licence required.",
+      do: "Pick a project, choose an analysis tab, and press Run. Results appear in seconds.",
+      to: "/app/simulation",
+      cta: "Open Simulation",
+      list: ["Field solver", "T1 / T2", "2-qubit gates", "Yield"],
     },
     {
       n: "03",
       icon: Sparkles,
       color: "violet" as const,
-      title: "Optimize",
-      text: "Define target frequencies and performance goals. QRIVARA automatically explores design spaces and recommends improvements.",
+      title: "Optimize to targets",
+      text: "Set your target frequency, anharmonicity and coupling. QRIVARA runs a real multi-objective optimizer and a Monte-Carlo yield study, and recommends parameters.",
+      do: "Enter your targets and press Start — watch the convergence and Pareto front update live.",
+      to: "/app/optimization",
+      cta: "Open Optimization",
+      list: ["Multi-objective", "Pareto", "Yield MC", "Inverse design"],
     },
     {
       n: "04",
       icon: GitBranch,
       color: "success" as const,
-      title: "Track",
-      text: "Every simulation, every parameter, every experiment, every design revision — all recorded automatically.",
+      title: "Export & collaborate",
+      text: "Export fab-ready GDS-II / DXF / SPICE / Touchstone, or a Qiskit “digital twin” of your chip. Share with your team, leave comments, and track every revision.",
+      do: "Open Results, export your format, and invite a teammate to review.",
+      to: "/app/results",
+      cta: "Open Results",
+      list: ["GDS-II", "Qiskit target", "Share", "Comments"],
     },
   ];
   const chip: Record<string, string> = {
@@ -389,46 +406,48 @@ function HowItWorks() {
     violet: "bg-violet/12 text-violet",
     success: "bg-success/12 text-success",
   };
+  const linkTone: Record<string, string> = {
+    primary: "text-primary hover:text-primary/80",
+    cyan: "text-cyan hover:text-cyan/80",
+    violet: "text-violet hover:text-violet/80",
+    success: "text-success hover:text-success/80",
+  };
   return (
     <Section id="how">
       <SectionHeading
         center
-        tag={<SectionTag>How it works</SectionTag>}
-        title="From concept to experiment in four steps"
+        tag={<SectionTag>Getting started</SectionTag>}
+        title="New here? Follow these four steps"
+        subtitle="QRIVARA guides you end-to-end — each step tells you exactly what to do and drops you straight into the right workspace."
       />
       <div className="mt-14 grid gap-5 md:grid-cols-2">
         {steps.map((s, i) => {
           const Icon = s.icon;
           return (
             <Reveal key={s.n} delay={i * 0.07}>
-              <GlowCard className="h-full p-6 sm:p-7">
+              <GlowCard className="flex h-full flex-col p-6 sm:p-7">
                 <div className="flex items-center justify-between">
                   <div className={cn("grid h-11 w-11 place-items-center rounded-xl", chip[s.color])}>
                     <Icon className="h-5 w-5" />
                   </div>
-                  <span className="font-display text-3xl font-semibold text-line-strong">
-                    {s.n}
-                  </span>
+                  <span className="font-display text-3xl font-semibold text-line-strong">{s.n}</span>
                 </div>
-                <h3 className="mt-5 font-display text-xl font-semibold tracking-tight text-fg">
-                  {s.title}
-                </h3>
+                <h3 className="mt-5 font-display text-xl font-semibold tracking-tight text-fg">{s.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-fg-muted">{s.text}</p>
-                {s.list && (
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {s.list.map((l) => (
-                      <span
-                        key={l}
-                        className="rounded-lg border border-line bg-surface-2 px-2.5 py-1 text-xs font-medium text-fg-muted"
-                      >
-                        {l}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {s.tagline && (
-                  <p className="mt-4 text-sm font-medium text-cyan">{s.tagline}</p>
-                )}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {s.list.map((l) => (
+                    <span key={l} className="rounded-lg border border-line bg-surface-2 px-2.5 py-1 text-xs font-medium text-fg-muted">
+                      {l}
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-4 flex items-start gap-2 rounded-xl border border-line bg-surface-2 p-3">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+                  <p className="text-xs text-fg-muted"><span className="font-semibold text-fg">Do this:</span> {s.do}</p>
+                </div>
+                <Link to={s.to} className={cn("mt-4 inline-flex items-center gap-1.5 text-sm font-semibold transition-colors", linkTone[s.color])}>
+                  {s.cta} <ArrowRight className="h-4 w-4" />
+                </Link>
               </GlowCard>
             </Reveal>
           );
@@ -451,62 +470,69 @@ function Features() {
         />
 
         <div className="mt-14 grid gap-5 md:grid-cols-3">
-          {/* Visual Quantum Design — wide */}
+          {/* Own EM field solver — wide, the moat */}
           <Reveal className="md:col-span-2">
             <GlowCard className="flex h-full flex-col justify-between overflow-hidden p-6 sm:p-8">
               <div>
                 <div className="grid h-11 w-11 place-items-center rounded-xl bg-primary/12 text-primary">
-                  <Workflow className="h-5 w-5" />
+                  <Cpu className="h-5 w-5" />
                 </div>
                 <h3 className="mt-5 font-display text-xl font-semibold tracking-tight">
-                  Visual Quantum Design
+                  Our own 3-D field solver — no Ansys licence
                 </h3>
                 <p className="mt-2 max-w-md text-sm leading-relaxed text-fg-muted">
-                  Build complex quantum circuits using an intuitive visual
-                  workspace. No repetitive scripting. No disconnected tools.
+                  A genuine 3-D electrostatic FEM solver (∇·(ε∇φ)=0, edge-conforming grid)
+                  extracts the Maxwell capacitance matrix in absolute femtofarads —
+                  grid-converged to ±0.4%, validated against analytic results. See the
+                  solved field, mesh and convergence right in the app.
                 </p>
               </div>
               <MiniCanvas />
             </GlowCard>
           </Reveal>
 
-          {/* Code First */}
-          <Reveal delay={0.05}>
-            <FeatureCard
-              icon={Code2}
-              color="cyan"
-              title="Code First Engineering"
-              text="A powerful Python workspace fully synchronized with your visual designs. Visual and code workflows stay connected."
-            />
-          </Reveal>
-
-          {/* Simulation */}
           <Reveal delay={0.05}>
             <FeatureCard
               icon={Activity}
-              color="violet"
-              title="Simulation Workspace"
-              text="Execute simulations directly from the design environment — frequencies, capacitance, coupling, parameter sweeps and performance metrics."
+              color="cyan"
+              title="25+ physics-correct analyses"
+              text="Exact transmon/fluxonium spectra, T1/T2 coherence, dispersive readout, ZZ crosstalk, surface-code QEC — every analysis validated against the canonical literature (Koch, Krantz, Fowler) and benchmarked vs scqubits."
             />
           </Reveal>
 
-          {/* Optimization */}
-          <Reveal delay={0.1}>
+          <Reveal delay={0.05}>
             <FeatureCard
-              icon={Sparkles}
-              color="primary"
-              title="Design Optimization"
-              text="Explore thousands of design variations and discover better solutions faster. Reduce iteration cycles, increase research productivity."
+              icon={Zap}
+              color="violet"
+              title="Time-domain 2-qubit gates"
+              text="Real Schrödinger-equation simulation of CZ / iSWAP / cross-resonance gates with leakage-aware fidelity — not a coherence estimate, the actual pulse dynamics."
             />
           </Reveal>
 
-          {/* Experiment Intelligence */}
           <Reveal delay={0.1}>
             <FeatureCard
               icon={GitBranch}
               color="success"
-              title="Experiment Intelligence"
-              text="Understand how designs evolve over time. Compare versions, track results, and preserve engineering knowledge."
+              title="Frequency-collision yield maps"
+              text="The manufacturability question for fixed-frequency chips — the IBM heavy-hex collision model with a Monte-Carlo yield map, so you see which qubits collide before tape-out."
+            />
+          </Reveal>
+
+          <Reveal delay={0.1}>
+            <FeatureCard
+              icon={Sparkles}
+              color="primary"
+              title="Optimization + AI assistant"
+              text="Multi-objective optimizer, inverse design and Monte-Carlo yield — plus an AI assistant that generates designs from a sentence and reviews your reports."
+            />
+          </Reveal>
+
+          <Reveal delay={0.1}>
+            <FeatureCard
+              icon={Code2}
+              color="cyan"
+              title="Fab exports + Qiskit twin"
+              text="One click to GDS-II, DXF, SPICE and Touchstone — or export a Qiskit Target “digital twin” of your chip to run circuits against it. Real-time collaboration, sharing and comments built in."
             />
           </Reveal>
         </div>
@@ -568,6 +594,86 @@ function MiniCanvas() {
         );
       })}
     </div>
+  );
+}
+
+/* ============================ HOW-TO / DOCS ============================== */
+/* Integrated, read-on-the-home-page how-to guide — concrete recipes so a new
+   user knows the exact clicks for each common task. */
+function HowToUse() {
+  const guides = [
+    {
+      icon: MousePointer2, color: "primary" as const, title: "Create your first qubit",
+      steps: ["Open the Visual Designer", "Drag a Transmon onto the canvas (or click “Generate with AI”)", "Set its target frequency & anharmonicity in the inspector"],
+    },
+    {
+      icon: Cpu, color: "cyan" as const, title: "Extract capacitance (field solver)",
+      steps: ["Go to Simulation → Layout → Field Solver", "Pick your project and press Run", "Read the solved potential map, ε_eff and the Maxwell matrix"],
+    },
+    {
+      icon: Zap, color: "violet" as const, title: "Check 2-qubit gate fidelity",
+      steps: ["Simulation → Performance → 2Q Gate (Time-Domain)", "Choose CZ, iSWAP or Cross-Resonance and Run", "Inspect the population dynamics, fidelity and leakage"],
+    },
+    {
+      icon: GitBranch, color: "success" as const, title: "Find frequency collisions",
+      steps: ["Simulation → Performance → Freq. Collisions / Yield", "Set the lattice size and fab precision σ", "Read the yield curve and the collision heat-map"],
+    },
+    {
+      icon: Code2, color: "cyan" as const, title: "Export for fabrication",
+      steps: ["Open Results (or the Designer toolbar)", "Choose GDS-II, DXF, SPICE or Touchstone", "Or grab a Qiskit Target to run circuits on your chip"],
+    },
+    {
+      icon: Sparkles, color: "primary" as const, title: "Use the AI assistant",
+      steps: ["Open the assistant from any page", "Describe the chip you want in plain English", "Review the generated design and the AI’s recommendations"],
+    },
+  ];
+  const chip: Record<string, string> = {
+    primary: "bg-primary/12 text-primary",
+    cyan: "bg-cyan/12 text-cyan",
+    violet: "bg-violet/12 text-violet",
+    success: "bg-success/12 text-success",
+  };
+  return (
+    <Section id="docs">
+      <SectionHeading
+        center
+        tag={<SectionTag icon={<MousePointer2 className="h-3.5 w-3.5" />}>How to use it</SectionTag>}
+        title="Quick recipes — know exactly what to click"
+        subtitle="No 400-page manual. Each common task is three clicks; here is the exact path for the ones you’ll use most."
+      />
+      <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        {guides.map((g, i) => {
+          const Icon = g.icon;
+          return (
+            <Reveal key={g.title} delay={i * 0.05}>
+              <GlowCard className="h-full p-6">
+                <div className="flex items-center gap-3">
+                  <div className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-xl", chip[g.color])}>
+                    <Icon className="h-[1.1rem] w-[1.1rem]" />
+                  </div>
+                  <h3 className="font-display text-base font-semibold tracking-tight text-fg">{g.title}</h3>
+                </div>
+                <ol className="mt-4 space-y-2.5">
+                  {g.steps.map((s, k) => (
+                    <li key={k} className="flex items-start gap-2.5 text-sm text-fg-muted">
+                      <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md bg-surface-2 text-2xs font-bold text-fg-subtle">
+                        {k + 1}
+                      </span>
+                      {s}
+                    </li>
+                  ))}
+                </ol>
+              </GlowCard>
+            </Reveal>
+          );
+        })}
+      </div>
+      <Reveal delay={0.15} className="mx-auto mt-10 max-w-xl text-center">
+        <Link to="/app">
+          <Button size="lg" iconRight={<ArrowRight className="h-4 w-4" />}>Start with step 1 — open the Designer</Button>
+        </Link>
+      </Reveal>
+    </Section>
   );
 }
 

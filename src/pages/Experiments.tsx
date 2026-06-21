@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
 import { Select, Field } from "@/components/ui/Form";
 import { CHART, axisProps, ChartTooltip } from "@/lib/chartTheme";
+import { comingSoon, PreviewBadge } from "@/components/common/ComingSoon";
 import { VERSIONS, EVOLUTION } from "@/data/mockData";
 import { cn, timeAgo } from "@/lib/utils";
 
@@ -55,15 +56,20 @@ export default function Experiments() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Experiment Intelligence"
+        title={
+          <span className="flex items-center gap-2.5">
+            Experiment Intelligence
+            <PreviewBadge />
+          </span>
+        }
         subtitle="Version history, design evolution and run comparisons."
         icon={<GitBranch className="h-5 w-5" />}
         actions={
           <>
-            <Button variant="outline" icon={<Download className="h-4 w-4" />} onClick={() => alert("Exported experiments to CSV")}>
+            <Button variant="outline" icon={<Download className="h-4 w-4" />} onClick={() => comingSoon("Experiment export")}>
               Export
             </Button>
-            <Button icon={<Camera className="h-4 w-4" />} onClick={() => alert("Snapshot feature coming soon")}>New Snapshot</Button>
+            <Button icon={<Camera className="h-4 w-4" />} onClick={() => comingSoon("Design snapshots")}>New Snapshot</Button>
           </>
         }
       />
@@ -103,7 +109,10 @@ export default function Experiments() {
                   return (
                     <button
                       key={v.id}
-                      onClick={() => setSelected(v.id)}
+                      onClick={() => {
+                        setSelected(v.id);
+                        comingSoon("Version checkout");
+                      }}
                       className={cn(
                         "relative flex w-full items-start gap-4 rounded-xl px-3 py-3 text-left transition-colors",
                         selected === v.id ? "bg-primary/[0.07]" : "hover:bg-surface-2",
@@ -253,8 +262,7 @@ export default function Experiments() {
             <CardContent className="pt-3">
               <dl className="space-y-2.5 text-sm">
                 {[
-                  ["Solver", "Ansys HFSS"],
-                  ["Mesh", "182k tets"],
+                  ["Solver", "QRIVARA 3-D FEM"],
                   ["Author", sel.author],
                   ["Date", new Date(sel.at).toLocaleDateString()],
                   ["Branch", "main"],

@@ -31,11 +31,26 @@ services:
     environment:
       # Override so the app talks to the compose Postgres regardless of .env.
       DATABASE_URL: postgresql://postgres:postgres@db:5432/qrivara
+      # Offload simulations to the `worker` service below (API only enqueues).
+      SIM_WORKER_ENABLED: "true"
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "8000:8000"
+
+  # Executes queued SimulationJob rows off the API request path. Scale with
+  # `docker compose up --scale worker=N` (jobs are claimed FOR UPDATE SKIP LOCKED).
+  worker:
+    build: ./backend
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/qrivara
+      SIM_WORKER_ENABLED: "true"
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:

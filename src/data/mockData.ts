@@ -392,11 +392,11 @@ export interface SimRun {
 }
 
 export const SIM_RUNS: SimRun[] = [
-  { id: "s1", name: "Q7 eigenmode", type: "frequency", solver: "Ansys HFSS", status: "completed", progress: 100, duration: "4m 12s", mesh: "182k tets", at: "2026-06-14T08:18:00Z", result: "5.214 GHz" },
-  { id: "s2", name: "Cross-coupling matrix", type: "capacitance", solver: "Ansys Q3D", status: "running", progress: 64, duration: "2m 40s", mesh: "96k tets", at: "2026-06-14T08:30:00Z" },
-  { id: "s3", name: "Coupler g sweep", type: "coupling", solver: "palace", status: "queued", progress: 0, duration: "—", mesh: "210k tets", at: "2026-06-14T08:34:00Z" },
-  { id: "s4", name: "Readout κ", type: "frequency", solver: "Ansys HFSS", status: "completed", progress: 100, duration: "6m 05s", mesh: "240k tets", at: "2026-06-13T20:02:00Z", result: "1.18 MHz" },
-  { id: "s5", name: "Junction LJ", type: "capacitance", solver: "Ansys Q3D", status: "failed", progress: 38, duration: "1m 50s", mesh: "70k tets", at: "2026-06-13T15:20:00Z" },
+  { id: "s1", name: "Q7 resonance", type: "frequency", solver: "QRIVARA FEM", status: "completed", progress: 100, duration: "4m 12s", mesh: "168k nodes", at: "2026-06-14T08:18:00Z", result: "5.214 GHz" },
+  { id: "s2", name: "Cross-coupling matrix", type: "capacitance", solver: "QRIVARA 3-D FEM", status: "running", progress: 64, duration: "2m 40s", mesh: "150k nodes", at: "2026-06-14T08:30:00Z" },
+  { id: "s3", name: "Coupler g sweep", type: "coupling", solver: "QRIVARA Quantum Engine", status: "queued", progress: 0, duration: "—", mesh: "—", at: "2026-06-14T08:34:00Z" },
+  { id: "s4", name: "Readout κ", type: "frequency", solver: "QRIVARA FEM", status: "completed", progress: 100, duration: "6m 05s", mesh: "240k nodes", at: "2026-06-13T20:02:00Z", result: "1.18 MHz" },
+  { id: "s5", name: "Junction LJ", type: "capacitance", solver: "QRIVARA 3-D FEM", status: "failed", progress: 38, duration: "1m 50s", mesh: "70k nodes", at: "2026-06-13T15:20:00Z" },
 ];
 
 /* ----------------------- Chart-friendly datasets -------------------------- */

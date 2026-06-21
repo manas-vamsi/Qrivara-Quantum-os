@@ -20,6 +20,36 @@ try:
 except ImportError:  # pragma: no cover
     _OPENAI_OK = False
 
+
+# ── optional outbound compression (headroom-ai) ─────────────────────────────
+# If the `headroom-ai` package is installed, compress outbound messages (it
+# shrinks bulky JSON / logs / RAG context 60-95% before they reach the provider,
+# cutting input-token cost). FULLY GUARDED: any import or API failure falls back
+# to the original messages, so the AI layer behaves identically whether or not
+# headroom is present (e.g. on Python 3.14 venvs where the wheel may not exist).
+# Toggle with settings.headroom_enabled. NOTE: in library-only mode this is a
+# one-way compression (no model-side retrieval), so it trades a little fidelity
+# for tokens — disable it if advisor answers degrade.
+_HEADROOM_STATE: bool | None = None  # None = untried, True = active, False = unavailable
+
+
+def _compress(messages: list[dict]) -> list[dict]:
+    global _HEADROOM_STATE
+    if not settings.headroom_enabled or _HEADROOM_STATE is False:
+        return messages
+    try:
+        import headroom  # type: ignore
+        out = headroom.compress(messages)
+        _HEADROOM_STATE = True
+        if isinstance(out, list):
+            return out
+        msgs = getattr(out, "messages", None)  # tolerate a result-object wrapper
+        return msgs if isinstance(msgs, list) else messages
+    except Exception:  # noqa: BLE001 — not installed / incompatible → silent no-op
+        if _HEADROOM_STATE is None:
+            _HEADROOM_STATE = False  # stop retrying after the first miss (no log spam)
+        return messages
+
 # Reuse one client (and its connection pool) per provider — avoids the TLS/setup
 # cost on every request, cutting latency noticeably after the first call.
 _CLIENTS: dict = {}
@@ -138,6 +168,8 @@ def _complete(messages: list[dict], tools: list[dict] | None = None,
         raise AIUnavailable("AI service is not configured on the server.")
     if not _OPENAI_OK:  # pragma: no cover
         raise AIUnavailable("AI service is not available on the server.")
+
+    messages = _compress(messages)  # optional token reduction (no-op if headroom absent)
 
     oai_tools = [
         {"type": "function", "function": {"name": t["name"], "description": t["description"],
@@ -262,6 +294,8 @@ def _complete_stream(messages: list[dict], tools: list[dict] | None = None,
         raise AIUnavailable("AI service is not configured on the server.")
     if not _OPENAI_OK:  # pragma: no cover
         raise AIUnavailable("AI service is not available on the server.")
+
+    messages = _compress(messages)  # optional token reduction (no-op if headroom absent)
 
     oai_tools = [
         {"type": "function", "function": {"name": t["name"], "description": t["description"],

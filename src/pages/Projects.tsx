@@ -17,6 +17,9 @@ import { Progress } from "@/components/ui/Progress";
 import { AvatarGroup } from "@/components/ui/Avatar";
 import { Input, SegmentedControl } from "@/components/ui/Form";
 import { EmptyState } from "@/components/common/EmptyState";
+import { comingSoon } from "@/components/common/ComingSoon";
+import { ShareDialog } from "@/components/collab/ShareDialog";
+import { AIDesignBar } from "@/components/common/AIDesignBar";
 import { PROJECT_STATUS_TONE } from "@/data/mockData";
 import { useAppStore } from "@/store/useAppStore";
 import { useDataStore } from "@/store/useDataStore";
@@ -38,6 +41,7 @@ export default function Projects() {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [view, setView] = useState<"grid" | "list">("grid");
+  const [shareTarget, setShareTarget] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     fetchProjects();
@@ -69,11 +73,15 @@ export default function Projects() {
         }
       />
 
+      {/* AI design generator — the primary "create" action for this page */}
+      <AIDesignBar />
+
       {/* Folders */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {FOLDERS.map((f) => (
           <button
             key={f.name}
+            onClick={() => comingSoon("Project folders")}
             className="flex items-center gap-3 rounded-xl border border-line bg-surface p-3.5 text-left transition-colors hover:border-line-strong hover:bg-surface-2"
           >
             <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary/12 text-primary">
@@ -137,8 +145,8 @@ export default function Projects() {
                   {p.qubits}Q
                 </div>
                 <div className="flex items-center gap-1">
-                  <IconButton size="sm" aria-label="Bookmark" onClick={(e) => { e.stopPropagation(); /* Add bookmark logic */ }}><Bookmark className="h-4 w-4" /></IconButton>
-                  <IconButton size="sm" aria-label="Share" onClick={(e) => { e.stopPropagation(); /* Add share logic */ }}><Share2 className="h-4 w-4" /></IconButton>
+                  <IconButton size="sm" aria-label="Bookmark" onClick={(e) => { e.stopPropagation(); comingSoon("Bookmarks"); }}><Bookmark className="h-4 w-4" /></IconButton>
+                  <IconButton size="sm" aria-label="Share" onClick={(e) => { e.stopPropagation(); setShareTarget({ id: p.id, name: p.name }); }}><Share2 className="h-4 w-4" /></IconButton>
                 </div>
               </div>
               <div className="mt-3 flex items-center gap-2">
@@ -170,29 +178,42 @@ export default function Projects() {
         <Card>
           <CardContent className="space-y-1 pt-4">
             {filtered.map((p) => (
-              <button
+              <div
                 key={p.id}
-                onClick={() => navigate(`/app/designer?projectId=${p.id}`)}
-                className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-surface-2"
+                className="flex w-full items-center gap-4 rounded-xl px-3 py-3 transition-colors hover:bg-surface-2"
               >
-                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-line bg-surface-2 font-mono text-xs font-semibold text-primary">
-                  {p.qubits}Q
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h4 className="truncate text-sm font-semibold text-fg">{p.name}</h4>
-                    <Badge tone={PROJECT_STATUS_TONE[p.status] || "neutral"} dot={p.status === "active"}>{p.status}</Badge>
+                <button
+                  onClick={() => navigate(`/app/designer?projectId=${p.id}`)}
+                  className="flex min-w-0 flex-1 items-center gap-4 text-left"
+                >
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-line bg-surface-2 font-mono text-xs font-semibold text-primary">
+                    {p.qubits}Q
                   </div>
-                  <p className="truncate text-xs text-fg-subtle">{p.description}</p>
-                </div>
-                <div className="hidden w-28 sm:block"><Progress value={p.progress || 0} size="sm" /></div>
-                <AvatarGroup names={p.collaborators || []} size={24} max={3} />
-                <span className="hidden w-16 shrink-0 text-right text-2xs text-fg-subtle sm:block">{timeAgo(p.updatedAt || p.updated_at)}</span>
-              </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="truncate text-sm font-semibold text-fg">{p.name}</h4>
+                      <Badge tone={PROJECT_STATUS_TONE[p.status] || "neutral"} dot={p.status === "active"}>{p.status}</Badge>
+                    </div>
+                    <p className="truncate text-xs text-fg-subtle">{p.description}</p>
+                  </div>
+                  <div className="hidden w-28 sm:block"><Progress value={p.progress || 0} size="sm" /></div>
+                  <AvatarGroup names={p.collaborators || []} size={24} max={3} />
+                  <span className="hidden w-16 shrink-0 text-right text-2xs text-fg-subtle sm:block">{timeAgo(p.updatedAt || p.updated_at)}</span>
+                </button>
+                <IconButton size="sm" aria-label="Share" onClick={() => setShareTarget({ id: p.id, name: p.name })}><Share2 className="h-4 w-4" /></IconButton>
+              </div>
             ))}
           </CardContent>
         </Card>
       )}
+
+      <ShareDialog
+        open={!!shareTarget}
+        onClose={() => setShareTarget(null)}
+        projectId={shareTarget?.id ?? null}
+        projectName={shareTarget?.name ?? ""}
+        onChanged={() => fetchProjects()}
+      />
     </div>
   );
 }

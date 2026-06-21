@@ -33,6 +33,7 @@ import { Slider, SegmentedControl, Field, Select } from "@/components/ui/Form";
 import { useDataStore } from "@/store/useDataStore";
 import { useAppStore } from "@/store/useAppStore";
 import { CHART, axisProps, ChartTooltip } from "@/lib/chartTheme";
+import { comingSoon, PreviewBadge, ComingSoonOverlay } from "@/components/common/ComingSoon";
 import { OPT_OBJECTIVES, OPT_PARAMS, PARETO, OPT_ERRORS } from "@/data/mockData";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
@@ -296,7 +297,8 @@ export default function Optimization() {
         {/* Right */}
         <div className="space-y-6">
           <Card>
-            <Header title="Objectives" subtitle="Goal satisfaction" />
+            <Header title="Objectives" subtitle="Goal satisfaction" preview />
+            <ComingSoonOverlay label="Objective tracking">
             <CardContent className="space-y-4 pt-4">
               {OPT_OBJECTIVES.map((o) => {
                 const c = closeness(o);
@@ -328,10 +330,12 @@ export default function Optimization() {
                 );
               })}
             </CardContent>
+            </ComingSoonOverlay>
           </Card>
 
           <Card>
-            <Header title="Design Parameters" subtitle="Search space" />
+            <Header title="Design Parameters" subtitle="Search space" preview />
+            <ComingSoonOverlay label="Parameter search space">
             <CardContent className="space-y-5 pt-4">
               {OPT_PARAMS.map((p) => (
                 <div key={p.id}>
@@ -358,6 +362,7 @@ export default function Optimization() {
                 </div>
               ))}
             </CardContent>
+            </ComingSoonOverlay>
           </Card>
         </div>
       </div>
@@ -365,7 +370,8 @@ export default function Optimization() {
       {/* Physics-based error budget + EJ–EC optimal region */}
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <Header title="Error Budget" subtitle="Physics-based objectives (IQM 2024)" />
+          <Header title="Error Budget" subtitle="Physics-based objectives (IQM 2024)" preview />
+          <ComingSoonOverlay label="Error budget breakdown">
           <CardContent className="space-y-3.5 pt-4">
             {OPT_ERRORS.map((e) => (
               <div key={e.id}>
@@ -391,6 +397,7 @@ export default function Optimization() {
               <span className="font-mono text-primary">{totalErr.toFixed(1)} ×10⁻³</span>
             </div>
           </CardContent>
+          </ComingSoonOverlay>
         </Card>
 
         <Card>
@@ -535,7 +542,7 @@ export default function Optimization() {
               <span className="text-2xs text-fg-subtle">
                 {method === "bayesian" ? "Gaussian-process surrogate" : method === "genetic" ? "Genetic algorithm" : "Gradient descent"} · converged in {method === "bayesian" ? 42 : method === "genetic" ? 180 : 96} evals
               </span>
-              <Button size="sm" variant="subtle">Apply to design</Button>
+              <Button size="sm" variant="subtle" onClick={() => comingSoon("Apply to design")}>Apply to design</Button>
             </div>
           </CardContent>
         </Card>
@@ -543,7 +550,8 @@ export default function Optimization() {
 
       {/* Radar */}
       <Card>
-        <Header title="Objective Satisfaction" subtitle="Multi-objective overview" />
+        <Header title="Objective Satisfaction" subtitle="Multi-objective overview" preview />
+        <ComingSoonOverlay label="Objective satisfaction radar">
         <CardContent className="pt-4">
           <ResponsiveContainer width="100%" height={300}>
             <RadarChart data={radarData} outerRadius="72%">
@@ -555,18 +563,20 @@ export default function Optimization() {
             </RadarChart>
           </ResponsiveContainer>
         </CardContent>
+        </ComingSoonOverlay>
       </Card>
     </div>
   );
 }
 
-function Header({ title, subtitle }: { title: string; subtitle?: string }) {
+function Header({ title, subtitle, preview }: { title: string; subtitle?: string; preview?: boolean }) {
   return (
     <div className="flex items-center gap-2 px-5 pt-5">
       <Activity className="hidden h-0 w-0" />
       <div>
-        <h3 className="font-display text-[0.95rem] font-semibold tracking-tight">
+        <h3 className="flex items-center gap-2 font-display text-[0.95rem] font-semibold tracking-tight">
           {title}
+          {preview && <PreviewBadge />}
         </h3>
         {subtitle && <p className="text-sm text-fg-subtle">{subtitle}</p>}
       </div>

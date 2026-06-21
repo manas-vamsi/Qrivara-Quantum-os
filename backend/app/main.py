@@ -14,9 +14,11 @@ from .db import init_db
 from .routers import (
     ai,
     auth,
+    chat,
     codegen,
     collaboration,
     components,
+    dashboard,
     designs,
     experiments,
     export,
@@ -26,12 +28,22 @@ from .routers import (
     results,
     search,
     simulations,
+    social,
+    teams,
 )
 from .seed import seed
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Fail closed: in production the dev impersonation path (X-Dev-User-Id) must
+    # never be reachable, so refuse to boot without a configured JWT secret
+    # rather than silently downgrading to header-trust auth.
+    if settings.environment == "production" and not settings.supabase_jwt_secret:
+        raise RuntimeError(
+            "Refusing to start in production without `supabase_jwt_secret` — "
+            "dev header auth would be exposed."
+        )
     init_db()
     seed()
     yield
@@ -60,6 +72,7 @@ app.add_middleware(
 for module in (
     auth, projects, designs, components, materials, simulations,
     codegen, optimization, results, experiments, collaboration, search, export, ai,
+    social, chat, teams, dashboard,
 ):
     app.include_router(module.router)
 

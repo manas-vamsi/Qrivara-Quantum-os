@@ -123,3 +123,34 @@ class ProfileUpdate(BaseModel):
     name: Optional[str] = None
     role: Optional[str] = None
     org: Optional[str] = None
+    headline: Optional[str] = None
+    bio: Optional[str] = None
+    institution: Optional[str] = None
+    discoverable: Optional[bool] = None
+
+
+# ----------------------------- Collaboration ------------------------------- #
+
+VALID_ROLES = {"owner", "editor", "commenter", "viewer"}
+VALID_VISIBILITY = {"private", "org", "link", "public"}
+
+
+class GrantCreate(BaseModel):
+    # Share with an existing user by id, invite by email (creates a user shell),
+    # OR share with a whole team by team_id.
+    user_id: Optional[str] = None
+    email: Optional[str] = None
+    team_id: Optional[str] = None
+    role: str = "viewer"
+
+
+class GrantUpdate(BaseModel):
+    role: str
+
+
+class VisibilityUpdate(BaseModel):
+    visibility: str
+
+
+class ConnectionCreate(BaseModel):
+    addressee_id: str

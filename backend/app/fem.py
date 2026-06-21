@@ -26,7 +26,7 @@ EPS0 = 8.8541878128e-12  # F/m
 _T_EFF = 1.05e-3
 
 
-def capacitance_matrix(conductors: list[dict], eps_eff: float = 6.35, grid: int = 360,
+def capacitance_matrix(conductors: list[dict], eps_eff: float = 6.35, grid: int = 512,
                        default_gap: float = 30.0):
     """Solve the layout's electrostatics and return the Maxwell capacitance
     matrix [fF]. `conductors` = [{label, x, y, w, h, gap?}] in microns. Each island

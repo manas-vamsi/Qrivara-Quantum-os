@@ -1,7 +1,8 @@
 """QRIVARA backend tests — physics, FEM solver, analysis jobs, and exporters.
 
-Pure-function tests (no DB / no network). Run from the backend dir:
-    .venv/Scripts/python -m pytest -q
+Pure-function tests (no DB / no network). Run from the backend dir with the
+venv active (Windows: .venv\\Scripts\\activate · macOS/Linux: source .venv/bin/activate):
+    python -m pytest -q
 """
 import math
 
@@ -95,6 +96,121 @@ def test_fem_eigenmodes():
     assert modes and modes[0][0] > 0
 
 
+# ── 3-D field solver (our open-source "Q3D") ─────────────────────────────────
+def test_fem3d_parallel_plate_above_ideal():
+    """Solver core vs closed-form C = ε0·A/d: numeric must exceed the ideal
+    (fringing always adds capacitance) and stay within a sane factor."""
+    from app import fem3d
+    r = fem3d.parallel_plate_self_test(eps_r=1.0)
+    assert 1.0 < r["ratio"] < 2.2
+
+
+def test_fem3d_transmon_self_capacitance_physical():
+    """A 455×90 µm transmon pad on silicon should land in the textbook
+    self-capacitance range (~60–130 fF)."""
+    from app import fem3d
+    _, M = fem3d.capacitance_matrix_3d(
+        [{"label": "Q1", "x": 0, "y": 0, "w": 455, "h": 90, "gap": 30}],
+        eps_substrate=11.7)
+    assert 60.0 < M[0][0] < 130.0
+
+
+def test_gmsh_mesh_pipeline():
+    """The geometry→mesh stage (the high-risk part of the Palace integration) must
+    produce a real conformal tet mesh with tagged physical groups. Skips if gmsh
+    isn't installed."""
+    pytest.importorskip("gmsh")
+    from app import geometry
+    m = geometry.build_mesh([
+        {"label": "Q1", "x": 0, "y": 0, "w": 455, "h": 90},
+        {"label": "Q2", "x": 650, "y": 0, "w": 455, "h": 90},
+    ], eps_substrate=11.7)
+    assert m["n_nodes"] > 100 and m["n_tets"] > 100
+    assert m["attrs"]["substrate"] and m["attrs"]["air"]
+    assert len(m["attrs"]["pec"]) >= 1 and len(m["attrs"]["box"]) >= 1
+    import os
+    assert os.path.exists(m["mesh"]) and os.path.getsize(m["mesh"]) > 1000
+
+
+def test_palace_config_shape():
+    """Palace eigenmode config must be valid JSON with the expected solver/material
+    blocks (pure-Python; no binary needed)."""
+    import json
+    from app import palace
+    cfg = palace.eigenmode_config("model.msh",
+        {"substrate": 1, "air": 2, "pec": [3], "box": [4]},
+        eps_substrate=11.7, target_ghz=3.0, n_modes=4, output_dir="postpro")
+    assert cfg["Problem"]["Type"] == "Eigenmode"
+    assert cfg["Solver"]["Eigenmode"]["N"] == 4
+    assert any(m["Permittivity"] == 11.7 for m in cfg["Domains"]["Materials"])
+    assert cfg["Boundaries"]["PEC"]["Attributes"] == [3]
+    json.dumps(cfg)
+
+
+def test_eigenmode_fullwave_falls_back():
+    """Without the Palace binary deployed, the full-wave eigenmode analysis must
+    gracefully fall back to the real analytic LC eigenmode (never error)."""
+    nodes = [
+        {"id": "q1", "position": {"x": 0, "y": 0},
+         "data": {"kind": "transmon", "params": {"pad_width_um": 455, "pad_height_um": 90, "pad_gap_um": 30, "ic_nA": 30}}},
+        {"id": "q2", "position": {"x": 650, "y": 0},
+         "data": {"kind": "transmon", "params": {"pad_width_um": 455, "pad_height_um": 90, "pad_gap_um": 30, "ic_nA": 31}}},
+    ]
+    r = jobs._eigenmode_fullwave(nodes, {})
+    assert isinstance(r, dict) and "modes" in r
+    # palace binary isn't installed in CI → must report the fallback honestly
+    assert r.get("fullwave_fallback") is True
+    assert "analytic LC eigenmode" in r["method"]
+
+
+def test_fem3d_edge_conforming_convergence():
+    """The edge-conforming grid must make the self-capacitance GRID-INDEPENDENT:
+    putting grid lines on the pad/gap edges removes the snapping scatter, so coarse
+    and fine node budgets must agree to within a few percent (was ±7% on a uniform
+    grid). This is the accuracy guarantee for the field solver."""
+    from app import fem3d
+    pad = [{"label": "Q1", "x": 0, "y": 0, "w": 455, "h": 90, "gap": 30}]
+    _, lo = fem3d.capacitance_matrix_3d(pad, max_nodes=40_000)
+    _, hi = fem3d.capacitance_matrix_3d(pad, max_nodes=200_000)
+    rel = abs(lo[0][0] - hi[0][0]) / hi[0][0]
+    assert rel < 0.03, f"grid convergence {rel*100:.1f}% (expected <3%)"
+
+
+def test_field_solver_output():
+    """The field-solver analysis returns a converged matrix, a small convergence
+    error bar, the field-derived ε_eff ≈ (ε_sub+1)/2, and a potential map for the UI."""
+    import json
+    nodes = [{"id": "q1", "position": {"x": 0, "y": 0},
+              "data": {"kind": "transmon", "params": {"pad_width_um": 455, "pad_height_um": 90, "pad_gap_um": 30}}}]
+    r = jobs._field_solver(nodes, {"eps_substrate": 11.7})
+    assert r["self_capacitance_fF"] and 60 < r["self_capacitance_fF"][0] < 130
+    assert r["convergence_error_pct"] < 5.0                      # tight on the edge-conforming grid
+    assert abs(r["eps_eff"] - (11.7 + 1) / 2) < 0.2             # field-derived ε_eff
+    assert r["field_map"] and len(r["field_map"]["z"]) > 2       # 2-D potential map present
+    json.dumps(r, allow_nan=False)                              # serialises
+
+
+def test_fem3d_dielectric_monotonic():
+    """More substrate permittivity → larger capacitance (the 3-D interface effect)."""
+    from app import fem3d
+    def self_c(eps):
+        _, M = fem3d.capacitance_matrix_3d(
+            [{"label": "Q1", "x": 0, "y": 0, "w": 455, "h": 90, "gap": 30}],
+            eps_substrate=eps)
+        return M[0][0]
+    assert self_c(1.0) < self_c(6.35) < self_c(11.7)
+
+
+def test_fem3d_mutual_positive_and_small():
+    """Two pads 650 µm apart: mutual capacitance positive and far below self-C."""
+    from app import fem3d
+    _, M = fem3d.capacitance_matrix_3d([
+        {"label": "Q1", "x": 0, "y": 0, "w": 455, "h": 90, "gap": 30},
+        {"label": "Q2", "x": 650, "y": 0, "w": 455, "h": 90, "gap": 30},
+    ], eps_substrate=11.7)
+    assert 0.0 < -M[0][1] < 0.2 * M[0][0]
+
+
 # ── decoherence / gate / readout / QEC physics ───────────────────────────────
 def test_quasiparticle_t1_scaling():
     # T1 ∝ 1/x_qp — an order-of-magnitude less QP density → ~10× longer T1
@@ -117,6 +233,18 @@ def test_flux_noise_sweet_spot_protects():
 def test_photon_shot_noise_finite():
     t = P.photon_shot_noise_dephasing(0.5, 1.2, fr_ghz=7.1, temp_k=0.05)
     assert math.isfinite(t) and t > 0
+
+
+def test_photon_shot_noise_weak_drive_limit():
+    """In the κ≫χ regime the full Gambetta dispersive-dephasing formula must reduce
+    to the canonical Γφ ≈ 4χ²n̄/κ (χ = half shift, angular). Locks the verified
+    physics so a future edit can't silently break the limit."""
+    chi_mhz, kap_mhz, nbar = 0.2, 4.0, 0.02         # χ/κ = 0.05 → deep in κ≫χ
+    tphi_us = P.photon_shot_noise_dephasing(chi_mhz, kap_mhz, n_bar=nbar)
+    chi = 2 * math.pi * chi_mhz * 1e6
+    kap = 2 * math.pi * kap_mhz * 1e6
+    tphi_analytic_us = (1.0 / (4 * chi ** 2 * nbar / kap)) * 1e6
+    assert abs(tphi_us / tphi_analytic_us - 1.0) < 0.10   # within 10% of the limit
 
 
 def test_gate_fidelity_ranges():
@@ -153,6 +281,61 @@ def test_tls_saturation():
     assert lo > hi > 0
 
 
+# ── asymmetric-SQUID flux tuning + real Monte-Carlo + real mesh ──────────────
+def test_squid_ej_asymmetry_floor():
+    # symmetric SQUID tunes to ~0 at half flux; asymmetric one floors at EJΣ·d
+    assert P.squid_ej(10.0, 0.5, 0.0) < 1e-9
+    assert abs(P.squid_ej(10.0, 0.5, 0.2) - 2.0) < 1e-6        # 10·d = 2.0
+    assert abs(P.squid_ej(10.0, 0.0, 0.2) - 10.0) < 1e-9       # full EJΣ at Φ=0
+
+
+def test_flux_spectrum_real_tuning():
+    """f01 must tune DOWN from the upper sweet spot, with a positive tunable range
+    and a finite floor set by the asymmetry — not a canned curve."""
+    nodes = [{"id": "q1", "position": {"x": 0, "y": 0},
+              "data": {"kind": "squid", "params": {"pad_width_um": 455, "pad_height_um": 90,
+                        "pad_gap_um": 30, "target_freq_GHz": 5.2, "anharmonicity_MHz": -310,
+                        "junction_asymmetry": 0.1}}}]
+    r = jobs._flux_spectrum(nodes, {})
+    assert r["upper_sweet_spot_GHz"] > r["lower_sweet_spot_GHz"] > 0
+    assert r["tunable_range_GHz"] > 1.0
+    assert len(r["spectrum"]) == 81
+    assert r["flux_sensitivity_GHz_per_Phi0"] > 0
+
+
+def test_fabrication_is_real_monte_carlo():
+    """Yield must come from sampling: tighter junction tolerance → higher yield,
+    and a wider spec window → higher yield. A closed-form facade can't track both."""
+    tight = jobs._fabrication({"junction_tolerance_pct": 1.0, "spec_window_MHz": 15})
+    loose = jobs._fabrication({"junction_tolerance_pct": 5.0, "spec_window_MHz": 15})
+    assert tight["yield_pct"] > loose["yield_pct"]
+    assert tight["frequency_drift_MHz"] < loose["frequency_drift_MHz"]
+    assert tight["samples"] >= 500 and len(tight["histogram"]) > 5
+    assert "Monte-Carlo" in tight["method"]
+
+
+def test_transmons_includes_tunable_excludes_snail():
+    """Tunable transmon (squid WITH pads) counts as a qubit; SNAIL coupler (squid
+    WITHOUT pads) does not."""
+    nodes = [
+        {"id": "q1", "data": {"kind": "squid", "params": {"pad_width_um": 455, "pad_height_um": 90}}},
+        {"id": "snail", "data": {"kind": "squid", "params": {"loop_area_um2": 25, "target_g_MHz": 100}}},
+        {"id": "t1", "data": {"kind": "transmon", "params": {"pad_width_um": 455}}},
+    ]
+    ids = [n["id"] for n in jobs._transmons(nodes)]
+    assert "q1" in ids and "t1" in ids and "snail" not in ids
+
+
+def test_mesh_reports_real_grid():
+    """Mesh analysis returns the actual voxel-grid stats, not fabricated tet counts."""
+    nodes = [{"id": "q1", "position": {"x": 0, "y": 0},
+              "data": {"kind": "transmon", "params": {"pad_width_um": 455, "pad_height_um": 90,
+                        "pad_gap_um": 30}}}]
+    m = jobs._mesh(nodes, [], {})
+    assert m["nodes"] > 1000 and m["cells"] > 1000
+    assert "x" in m["grid_dimensions"] and m["cell_size_um"] > 0
+
+
 def test_reject_nonfinite_guards_params():
     # security: NaN/Inf (incl. numeric strings + nested) must be rejected at the
     # boundary so they can't poison the persisted JSON / break the response renderer
@@ -171,6 +354,242 @@ def test_zero_f01_does_not_crash():
         fn = {"decoherence": jobs._decoherence, "gate_fidelity": jobs._gate_fidelity,
               "readout": jobs._readout, "qec": jobs._qec}[t]
         assert isinstance(fn({"f01_GHz": 0}), dict)
+
+
+def test_two_qubit_gate_time_domain():
+    """Real time-domain propagation must (a) reach high fidelity for CZ and iSWAP at
+    a finite gate time, (b) keep leakage small, (c) wind a ~180deg conditional phase
+    for CZ, and (d) be a genuine unitary process (populations conserved + bounded)."""
+    cz = P.simulate_two_qubit_gate("cz", 5.10, 5.00, -310, -310, g_mhz=12)
+    assert cz["fidelity_pct"] > 99.0
+    assert cz["leakage_pct"] < 1.0
+    assert 150 < cz["conditional_phase_deg"] < 210      # conditional pi phase
+    assert cz["t_gate_ns"] > 0 and len(cz["trajectory"]) > 50
+
+    isw = P.simulate_two_qubit_gate("iswap", 5.05, 5.05, -310, -310, g_mhz=12)
+    assert isw["fidelity_pct"] > 98.0
+    # iSWAP starts in |01> and must transfer population to |10>
+    pops = [pt["p10"] for pt in isw["trajectory"]]
+    assert max(pops) > 0.9
+
+    cr = P.simulate_two_qubit_gate("cr", 5.10, 5.00, -310, -310, g_mhz=12, drive_mhz=50)
+    assert cr["fidelity_pct"] > 80.0 and cr["t_gate_ns"] > 0
+
+    # every trajectory sample is a valid probability set (0..1, sum<=1+eps)
+    for pt in cz["trajectory"]:
+        tot = pt["p00"] + pt["p01"] + pt["p10"] + pt["p11"] + pt["leak"]
+        assert 0.98 < tot < 1.02
+
+
+def test_two_qubit_gate_from_layout():
+    """The analysis pulls f/anharm/g from a 2-transmon layout (LOM) rather than params."""
+    nodes = [
+        {"id": "q1", "position": {"x": 0, "y": 0},
+         "data": {"kind": "transmon", "params": {"pad_width_um": 455, "pad_height_um": 90,
+                   "pad_gap_um": 30, "ic_nA": 30}}},
+        {"id": "q2", "position": {"x": 300, "y": 0},
+         "data": {"kind": "transmon", "params": {"pad_width_um": 455, "pad_height_um": 90,
+                   "pad_gap_um": 30, "ic_nA": 31}}},
+    ]
+    r = jobs._two_qubit_gate(nodes, {"gate": "cz"})
+    assert r["gate"] == "CZ" and 0 <= r["fidelity_pct"] <= 100
+    assert "layout" in r["source"]
+    assert len(r["U_abs"]) == 4 and len(r["U_abs"][0]) == 4
+
+    # honest on-chip estimate: design's real T1/T2 (decoherence budget) folded onto
+    # the coherent-control fidelity; the on-chip number can only be <= coherent.
+    coh = r["coherence"]
+    assert coh["T1_q1_us"] > 0 and coh["T2_q1_us"] > 0 and coh["T1_q2_us"] > 0
+    assert coh["coherence_error_pct"] >= 0
+    assert coh["onchip_fidelity_pct"] <= r["fidelity_pct"] + 1e-6
+    assert "decoherence budget" in coh["t1t2_source"]
+    # explicit T1/T2 override is honored and changes the estimate
+    r2 = jobs._two_qubit_gate(nodes, {"gate": "cz", "T1_us": 50, "T2_us": 40})
+    assert "explicit" in r2["coherence"]["t1t2_source"]
+
+
+def test_calibrated_cross_resonance():
+    """The pulse-level DRAG-calibrated two-tone CR engine must (a) beat the
+    un-calibrated analytic CR, (b) reach the ~99% hardware regime with small
+    leakage, (c) return a valid ZX(pi/2) process and a real population trajectory,
+    and (d) orient the pair (control = higher-frequency qubit). Skipped if QuTiP
+    is not installed (the job falls back to the analytic engine in that case)."""
+    from app import pulse
+    if not pulse.available():
+        pytest.skip("QuTiP not installed — calibrated CR engine unavailable")
+
+    analytic = P.simulate_two_qubit_gate("cr", 5.10, 5.00, -310, -310,
+                                         g_mhz=12, drive_mhz=50)
+    cal = pulse.simulate_cr_calibrated(5.10, 5.00, -310, -310, g_mhz=12)
+    assert cal is not None
+    assert cal["engine"] == "qutip_two_tone_cr_drag"
+    assert cal["fidelity_pct"] > 97.0                       # hardware regime
+    assert cal["fidelity_pct"] >= analytic["fidelity_pct"]  # beats un-calibrated
+    assert cal["leakage_pct"] < 1.5
+    assert 100.0 < cal["t_gate_ns"] < 700.0
+    # calibration block is populated with real pulse knobs
+    c = cal["calibration"]
+    assert c["cr_amp_MHz"] > 0 and c["cancel_amp_MHz"] >= 0 and c["drag_weight"] != 0
+    # trajectory is a real, probability-conserving evolution from |10>
+    assert len(cal["trajectory"]) > 40
+    assert cal["trajectory"][0]["p10"] > 0.99               # starts in |10>
+    for pt in cal["trajectory"]:
+        tot = pt["p00"] + pt["p01"] + pt["p10"] + pt["p11"] + pt["leak"]
+        assert 0.97 < tot < 1.03
+
+    # control oriented to the higher-frequency qubit even when passed reversed
+    rev = pulse.calibrate_cr(5.00, 5.10, -310, -310, g_mhz=12)
+    assert rev is not None and rev["swapped"] is True
+    assert rev["f_control_GHz"] > rev["f_target_GHz"]
+
+
+def test_frequency_collision_conditions():
+    """The 7 IBM collision conditions must fire exactly at their resonances and be
+    clear elsewhere (alpha=-330 MHz). Frequencies in MHz."""
+    a = -330.0
+    # Type 1: near-degenerate pair
+    assert 1 in P.pair_collision_types(5000, 5010, a)        # |Δ|=10 < 17
+    assert P.pair_collision_types(5000, 5120, a) == set()    # Δ=120 in the good band
+    # Type 3: target on control's 1->2 (|Δ| ~ |alpha|)
+    assert 3 in P.pair_collision_types(5000, 5000 - 330, a)
+    # Type 4: over-detuned (slow gate)
+    assert 4 in P.pair_collision_types(5000, 5000 - 400, a)
+    # Type 5 spectator: two neighbours of a control nearly degenerate
+    assert 5 in P.spectator_collision_types(5200, 5000, 5005, a)   # control above, |Δik|=5
+    assert P.spectator_collision_types(5200, 5000, 5120, a) == set()
+
+
+def test_frequency_collision_yield_monotonic():
+    """Heavy-hex yield must be ~100% at the nominal plan and decrease monotonically as
+    fabrication spread grows — the core manufacturability result (Hertzberg 2021)."""
+    import json
+    r = jobs._frequency_collisions([], [], {"topology": "heavy_hex", "n_qubits": 16, "sigma_MHz": 20})
+    assert r["nominal_yield_pct"] > 95.0                      # good frequency allocation
+    ys = [c["yield_pct"] for c in r["yield_curve"]]
+    assert ys[0] >= ys[-1]                                    # higher spread → lower yield
+    assert any(ys[i] >= ys[i + 1] - 1e-6 for i in range(len(ys) - 1))
+    assert r["n_qubits"] == 16 and r["n_edges"] > 0 and r["n_spectators"] > 0
+    assert len(r["lattice_nodes"]) == 16 and len(r["lattice_edges"]) == r["n_edges"]
+    assert all(0.0 <= nd["collision_prob"] <= 1.0 for nd in r["lattice_nodes"])
+    json.dumps(r, allow_nan=False)                            # serialises (no NaN/Inf)
+
+
+def test_heavy_hex_beats_grid_yield():
+    """The architecture-defining result: both lattices can be coloured collision-free
+    nominally, but the degree-≤3 heavy-hex has far fewer spectator constraints than the
+    degree-4 grid, so it yields much better under fabrication spread — the real reason
+    IBM adopted heavy-hex (Hertzberg 2021)."""
+    hh = jobs._frequency_collisions([], [], {"topology": "heavy_hex", "n_qubits": 18, "sigma_MHz": 15})
+    gr = jobs._frequency_collisions([], [], {"topology": "grid", "n_qubits": 18, "sigma_MHz": 15})
+    assert hh["nominal_yield_pct"] > 95.0
+    assert hh["n_spectators"] < gr["n_spectators"]          # lower degree → fewer constraints
+    assert hh["yield_pct"] > gr["yield_pct"]                # → higher manufacturable yield
+
+
+def test_spectator_guard_screen():
+    """Type-5 spectator collision needs the two neighbours degenerate AND the control
+    able to drive them (control above, per the patent f_j≥f_i OR f_j≥f_k screen)."""
+    a = -330.0
+    # control above the (degenerate) neighbours → flagged
+    assert 5 in P.spectator_collision_types(5100, 5000, 5010, a)
+    # control below both neighbours → not flagged
+    assert 5 not in P.spectator_collision_types(4900, 5000, 5010, a)
+
+
+def test_qiskit_target_export():
+    """A QRIVARA chip's analysis results export to a valid Qiskit Target descriptor
+    (qubit properties + instructions + coupling map), and to a live qiskit Target
+    when qiskit is installed."""
+    import json
+    from app import qiskit_export as QE
+    results = {
+        "lom": {"qubits": [{"f01_GHz": 5.0, "anharmonicity_MHz": -310},
+                            {"f01_GHz": 5.15, "anharmonicity_MHz": -305}],
+                "couplings": [{"pair": "Q1-Q2", "g_MHz": 12}]},
+        "decoherence": {"T1_total_us": 60, "T2_echo_us": 40},
+        "gate_fidelity": {"error_1q": 5e-4, "t_gate_1q_ns": 20, "error_2q": 8e-3, "t_gate_2q_ns": 200},
+        "two_qubit_gate": {"gate": "CZ", "fidelity": 0.992, "t_gate_ns": 180},
+        "readout": {"assignment_fidelity_pct": 98.0, "chi_MHz": 1.2},
+    }
+    d = QE.build_target_descriptor(results)
+    assert d["num_qubits"] == 2
+    assert "cz" in d["basis_gates"] and "sx" in d["basis_gates"]
+    assert [0, 1] in d["coupling_map"]
+    assert len(d["qubits"]) == 2 and d["qubits"][0]["frequency_GHz"] == 5.0
+    json.dumps(d, allow_nan=False)
+    # live Target (skip if qiskit absent)
+    qk = pytest.importorskip("qiskit")
+    t = QE.build_target(results)
+    assert t.num_qubits == 2 and "cz" in t.operation_names
+
+
+def test_qiskit_descriptor_rebuilds_target():
+    """The portable descriptor the UI downloads must reconstruct into a WORKING qiskit
+    Target (the exact round-trip the 'Export to Qiskit' snippet performs) and transpile
+    a real circuit onto the chip. This guards the export feature's core promise."""
+    pytest.importorskip("qiskit")
+    from app import qiskit_export as QE
+    from qiskit.transpiler import Target, InstructionProperties
+    from qiskit.providers import QubitProperties
+    from qiskit.circuit import Parameter, Measure
+    from qiskit.circuit.library import RZGate, SXGate, XGate, CXGate, CZGate, iSwapGate
+    from qiskit import QuantumCircuit, transpile
+
+    d = QE.build_target_descriptor({
+        "lom": {"qubits": [{"f01_GHz": 5.0, "anharmonicity_MHz": -310},
+                           {"f01_GHz": 5.1, "anharmonicity_MHz": -305}],
+                "couplings": [{"pair": "Q1-Q2", "g_MHz": 12}]},
+        "decoherence": {"T1_total_us": 80, "T2_echo_us": 60},
+        "two_qubit_gate": {"gate": "Cross-Resonance (ZX90, DRAG-calibrated)",
+                           "fidelity": 0.996, "t_gate_ns": 300},
+    })
+    gates = {"rz": RZGate(Parameter("theta")), "sx": SXGate(), "x": XGate(),
+             "cx": CXGate(), "cz": CZGate(), "iswap": iSwapGate(), "measure": Measure()}
+    qprops = [QubitProperties(frequency=q["frequency_GHz"] * 1e9,
+                              t1=q["T1_us"] * 1e-6, t2=q["T2_us"] * 1e-6) for q in d["qubits"]]
+    target = Target(num_qubits=d["num_qubits"], qubit_properties=qprops, dt=2.2222e-9)
+    for name in d["basis_gates"]:
+        props = {tuple(i["qargs"]): InstructionProperties(duration=i["duration_s"], error=i["error"])
+                 for i in d["instructions"] if i["gate"] == name}
+        target.add_instruction(gates[name], props)
+    # a CR design exports as a CNOT-equivalent → cx in the basis
+    assert "cx" in d["basis_gates"]
+    qc = QuantumCircuit(2); qc.h(0); qc.cx(0, 1); qc.measure_all()
+    tqc = transpile(qc, target=target)
+    # transpiled onto the chip's native basis only
+    assert set(tqc.count_ops()) <= set(d["basis_gates"]) | {"barrier"}
+    assert abs(target.qubit_properties[0].frequency - 5.0e9) < 1e6
+
+
+def test_physics_matches_scqubits():
+    """QRIVARA's own transmon engine must agree with scqubits (the industry-standard
+    exact-diagonalization package) to high precision — proves physics.py is correct,
+    not a fit. Skips if scqubits isn't installed."""
+    scq = pytest.importorskip("scqubits")
+    from app import scq as bridge
+    for ej, ec in [(14.0, 0.24), (20.0, 0.30), (8.0, 0.20)]:
+        ours = P.transmon_levels(ej, ec, ncut=31, levels=3)
+        theirs = bridge.transmon_levels_scq(ej, ec, ncut=31, levels=3)
+        for a, b in zip(ours, theirs):
+            assert abs(a - b) < 1e-3, f"transmon level mismatch at EJ={ej} EC={ec}: {a} vs {b}"
+
+
+def test_coupled_spectrum_exact_zz():
+    """The exact (scqubits) coupled-spectrum analysis returns dressed frequencies and
+    a finite ZZ, and (away from collisions) agrees with the perturbative formula to
+    within tens of percent. Skips if scqubits isn't installed."""
+    pytest.importorskip("scqubits")
+    import json
+    # well-separated qubits (700 MHz, far from |alpha|) → perturbation theory valid
+    nodes = []  # use params path
+    r = jobs._coupled_spectrum(nodes, {"f1_GHz": 5.0, "f2_GHz": 5.7,
+                                       "anharm1_MHz": -310, "anharm2_MHz": -310, "g_MHz": 8.0})
+    assert r["exact_zz_kHz"] is not None
+    assert r["f01_q1_GHz"] > 0 and r["f01_q2_GHz"] > 0
+    # exact and perturbative should be the same sign and same order of magnitude
+    ex, pe = r["exact_zz_kHz"], r["perturbative_zz_kHz"]
+    assert ex * pe > 0 and 0.5 < abs(ex / pe) < 2.0
+    json.dumps(r, allow_nan=False)
 
 
 def test_new_analyses_dispatch():

@@ -10,6 +10,9 @@ import {
   ArrowUpRight,
   Download,
   Info,
+  Cpu,
+  Copy,
+  Check,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -21,12 +24,15 @@ import {
   Tooltip as RTooltip,
   AreaChart,
   Area,
+  Legend,
+  ReferenceLine,
 } from "recharts";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Tabs } from "@/components/ui/Tabs";
+import { Modal } from "@/components/ui/Modal";
 import { Select, Field, Input } from "@/components/ui/Form";
 import { EmptyState } from "@/components/common/EmptyState";
 import { useDataStore } from "@/store/useDataStore";
@@ -34,21 +40,28 @@ import { api } from "@/lib/api";
 import { CHART, axisProps, ChartTooltip } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
 
-type Tab = "validation" | "frequency" | "eigenmode" | "capacitance" | "lom" | "circuit_graph" | "coupling" | "crosstalk" | "hamiltonian" | "sweep" | "mesh" | "epr" | "scattering" | "kinetic_inductance" | "feedback" | "gate_fidelity" | "readout" | "qec";
+type Tab = "validation" | "frequency" | "eigenmode" | "eigenmode_fullwave" | "capacitance" | "field_solver" | "lom" | "circuit_graph" | "coupling" | "crosstalk" | "hamiltonian" | "sweep" | "mesh" | "epr" | "scattering" | "kinetic_inductance" | "feedback" | "gate_fidelity" | "two_qubit_gate" | "frequency_collisions" | "decoherence" | "flux_spectrum" | "coupled_spectrum" | "readout" | "qec";
 
-const TABS = [
+const TABS: { value: Tab; label: string }[] = [
   { value: "validation", label: "Validation" },
   { value: "frequency", label: "Readout S21" },
   { value: "eigenmode", label: "Eigenmode" },
+  { value: "eigenmode_fullwave", label: "Eigenmode (Full-Wave)" },
   { value: "capacitance", label: "Capacitance" },
+  { value: "field_solver", label: "Field Solver" },
   { value: "lom", label: "LOM" },
   { value: "circuit_graph", label: "Circuit Graph" },
   { value: "coupling", label: "Coupling" },
   { value: "crosstalk", label: "Crosstalk" },
   { value: "hamiltonian", label: "Hamiltonian" },
+  { value: "flux_spectrum", label: "Flux Spectroscopy" },
+  { value: "coupled_spectrum", label: "Coupled Spectrum (Exact)" },
   { value: "epr", label: "EPR" },
+  { value: "decoherence", label: "Decoherence (T1/T2)" },
   { value: "gate_fidelity", label: "Gate Fidelity" },
-  { value: "readout", label: "Readout" },
+  { value: "two_qubit_gate", label: "2Q Gate (Time-Domain)" },
+  { value: "frequency_collisions", label: "Freq. Collisions / Yield" },
+  { value: "readout", label: "Readout Fidelity" }, // distinct from "Readout S21" (the S-param sweep)
   { value: "qec", label: "Error Correction" },
   { value: "scattering", label: "Scattering" },
   { value: "kinetic_inductance", label: "Kinetic L" },
@@ -57,11 +70,34 @@ const TABS = [
   { value: "feedback", label: "Feedback" },
 ];
 
+// Group the 18 analyses into intuitive categories (the SC design-loop order) so
+// the navigation is a 5-pill category bar + a short per-category tab row — no
+// horizontal overflow, and related analyses sit together.
+const TAB_BY_VALUE: Record<Tab, { value: Tab; label: string }> = Object.fromEntries(
+  TABS.map((t) => [t.value, t]),
+) as Record<Tab, { value: Tab; label: string }>;
+
+const GROUPS: { label: string; hint: string; tabs: Tab[] }[] = [
+  { label: "Layout", hint: "Geometry, field & extraction", tabs: ["validation", "capacitance", "field_solver", "circuit_graph", "mesh"] },
+  { label: "Modes & RF", hint: "EM modes & scattering", tabs: ["eigenmode", "eigenmode_fullwave", "frequency", "scattering", "kinetic_inductance"] },
+  { label: "Quantum", hint: "Hamiltonian, coupling & flux", tabs: ["lom", "hamiltonian", "epr", "coupling", "flux_spectrum", "coupled_spectrum"] },
+  { label: "Performance", hint: "Coherence, gates, QEC & yield", tabs: ["decoherence", "gate_fidelity", "two_qubit_gate", "frequency_collisions", "readout", "qec", "crosstalk"] },
+  { label: "Tools", hint: "Sweeps & feedback", tabs: ["sweep", "feedback"] },
+];
+
+// Dev guard: every analysis must live in exactly one group, or it becomes
+// unreachable from the nav (the activeCategory fallback would hide the omission).
+if (import.meta.env.DEV) {
+  const grouped = GROUPS.flatMap((g) => g.tabs);
+  const missing = TABS.map((t) => t.value).filter((v) => !grouped.includes(v));
+  if (missing.length) console.warn("[Simulation] ungrouped analysis tabs:", missing);
+}
+
 export default function Simulation() {
   const { projects, fetchProjects } = useDataStore();
   const [projectId, setProjectId] = useState("");
   const [tab, setTab] = useState<Tab>("frequency");
-  const [solver, setSolver] = useState("palace");
+  const [solver, setSolver] = useState("qrivara_fem");
   const [running, setRunning] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [res, setRes] = useState<any>(null);
@@ -78,8 +114,18 @@ export default function Simulation() {
     length_um: 1000,
     width_um: 10,
     thickness_nm: 20,
+    gate: "cz",
+    g_MHz: 12,
+    drive_MHz: 50,
+    topology: "heavy_hex",
+    n_qubits: 18,
+    sigma_MHz: 15,
   });
   const [formats, setFormats] = useState<any>(null);
+  // Qiskit Target export ("digital twin") modal state.
+  const [qtOpen, setQtOpen] = useState(false);
+  const [qtData, setQtData] = useState<any>(null);
+  const [qtLoading, setQtLoading] = useState(false);
   // Monotonic run token: a poll that resolves after a newer run started (or
   // after the user switched tabs) is ignored, so results never land on the
   // wrong tab. Now that runs are async (submit + poll) this race is reachable.
@@ -132,11 +178,30 @@ export default function Simulation() {
     if (dId) api.downloadDesignExport(dId, fmt);
   };
 
+  // Export the chip as a Qiskit Target ("digital twin") — resolves the project's
+  // design, fetches the descriptor, and opens the modal.
+  const openQiskitTarget = async () => {
+    if (!projectId) return;
+    setQtOpen(true);
+    setQtLoading(true);
+    setQtData(null);
+    try {
+      const designs = await api.getProjectDesigns(projectId);
+      const dId = designs?.[0]?.id;
+      if (!dId) throw new Error("No design found for this project");
+      setQtData(await api.getQiskitTarget(dId));
+    } catch (e: any) {
+      setQtData({ error: e?.message || "Failed to build the Qiskit Target" });
+    } finally {
+      setQtLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Simulation Engine"
-        subtitle="Validation, frequency, capacitance, EPR, scattering & mesh — live."
+        subtitle="Layout, modes, quantum, performance & error-correction analyses — live."
         icon={<Activity className="h-5 w-5" />}
         actions={
           <>
@@ -146,11 +211,10 @@ export default function Simulation() {
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </Select>
-            <Select value={solver} onChange={(e) => setSolver(e.target.value)} className="w-36">
-              <option value="palace">AWS Palace</option>
-              <option value="hfss">Ansys HFSS</option>
-              <option value="q3d">Ansys Q3D</option>
-              <option value="analytic">Analytic</option>
+            <Select value={solver} onChange={(e) => setSolver(e.target.value)} className="w-48">
+              <option value="qrivara_fem">QRIVARA FEM (3-D field solver)</option>
+              <option value="analytic">QRIVARA analytic / circuit model</option>
+              <option value="palace" disabled>AWS Palace (full-wave) — coming soon</option>
             </Select>
             {formats?.design && (
               <div className="flex gap-1">
@@ -161,6 +225,9 @@ export default function Simulation() {
                 ))}
               </div>
             )}
+            <Button variant="outline" icon={<Cpu className="h-4 w-4" />} onClick={openQiskitTarget} disabled={!projectId}>
+              Qiskit
+            </Button>
             <Button icon={<RotateCw className="h-4 w-4" />} loading={running} onClick={run} disabled={!projectId}>
               Run
             </Button>
@@ -168,15 +235,49 @@ export default function Simulation() {
         }
       />
 
-      <Tabs
-        value={tab}
-        onChange={(v) => {
-          runSeq.current++; // invalidate any in-flight run so its result can't land on the new tab
+      {/* Two-tier analysis nav: category pills (tier 1) + per-category tabs (tier 2).
+          Switching tabs invalidates any in-flight run so a stale result can't land
+          on the new tab (the run is async + polled). */}
+      {(() => {
+        const selectTab = (v: Tab) => {
+          runSeq.current++;
           setRes(null);
-          setTab(v as Tab);
-        }}
-        items={TABS}
-      />
+          setTab(v);
+        };
+        const activeCategory = GROUPS.find((g) => g.tabs.includes(tab)) ?? GROUPS[0];
+        return (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Analysis category">
+              {GROUPS.map((g) => {
+                const active = g.label === activeCategory.label;
+                return (
+                  <button
+                    key={g.label}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    title={g.hint}
+                    onClick={() => { if (!g.tabs.includes(tab)) selectTab(g.tabs[0]); }}
+                    className={cn(
+                      "rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors",
+                      active
+                        ? "bg-primary/15 text-primary ring-1 ring-inset ring-primary/30"
+                        : "text-fg-subtle hover:bg-surface-2 hover:text-fg",
+                    )}
+                  >
+                    {g.label}
+                  </button>
+                );
+              })}
+            </div>
+            <Tabs
+              value={tab}
+              onChange={(v) => selectTab(v as Tab)}
+              items={activeCategory.tabs.map((v) => TAB_BY_VALUE[v])}
+            />
+          </div>
+        );
+      })()}
 
       {/* Per-tab parameter controls */}
       <ParamBar tab={tab} params={params} setParams={setParams} onRun={run} running={running} />
@@ -197,18 +298,40 @@ export default function Simulation() {
                   Method: {res.method}
                 </div>
               )}
+              {/* FEM coverage — never silently drop qubits past the solver cap */}
+              {res.truncated && (
+                <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs font-medium text-warning">
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {res.coverage_note ||
+                      `Showing ${res.qubits_simulated} of ${res.qubits_total} qubits (FEM solver cap).`}
+                  </span>
+                </div>
+              )}
+              {res.truncated === false && res.qubits_total > 0 && (
+                <p className="px-1 text-2xs text-fg-subtle">
+                  Simulated all {res.qubits_total} qubit{res.qubits_total === 1 ? "" : "s"} in the layout.
+                </p>
+              )}
               {/* Result Views */}
               {tab === "validation" && <ValidationView res={res} />}
               {tab === "frequency" && <FrequencyView res={res} />}
               {tab === "eigenmode" && <EigenmodeView res={res} />}
+              {tab === "eigenmode_fullwave" && <EigenmodeView res={res} />}
               {tab === "capacitance" && <CapacitanceView res={res} />}
+              {tab === "field_solver" && <FieldSolverView res={res} />}
               {tab === "lom" && <LOMView res={res} />}
               {tab === "circuit_graph" && <CircuitGraphView res={res} />}
               {tab === "coupling" && <CouplingView res={res} />}
               {tab === "crosstalk" && <CrosstalkView res={res} />}
               {tab === "hamiltonian" && <HamiltonianView res={res} />}
+              {tab === "flux_spectrum" && <FluxSpectrumView res={res} />}
+              {tab === "coupled_spectrum" && <CoupledSpectrumView res={res} />}
               {tab === "epr" && <EPRView res={res} />}
+              {tab === "decoherence" && <DecoherenceView res={res} />}
               {tab === "gate_fidelity" && <GateFidelityView res={res} />}
+              {tab === "two_qubit_gate" && <TwoQubitGateView res={res} />}
+              {tab === "frequency_collisions" && <FrequencyCollisionView res={res} />}
               {tab === "readout" && <ReadoutView res={res} />}
               {tab === "qec" && <QecView res={res} />}
               {tab === "scattering" && <ScatteringView res={res} />}
@@ -239,7 +362,167 @@ export default function Simulation() {
           )}
         </motion.div>
       </AnimatePresence>
+
+      <QiskitTargetModal open={qtOpen} onClose={() => setQtOpen(false)} data={qtData} loading={qtLoading} />
     </div>
+  );
+}
+
+/** Python to rebuild a live qiskit Target from the exported descriptor — runnable as-is. */
+function qiskitSnippet(d: any): string {
+  const fname = `${d.design_id || "qrivara"}_qiskit_target.json`;
+  return `# QRIVARA -> Qiskit: a digital twin of the chip you designed.
+# pip install qiskit            (qiskit-aer optional, for noisy simulation)
+import json
+from qiskit.transpiler import Target, InstructionProperties
+from qiskit.providers import QubitProperties
+from qiskit.circuit import Parameter, Measure
+from qiskit.circuit.library import RZGate, SXGate, XGate, CXGate, CZGate, iSwapGate
+
+d = json.load(open("${fname}"))
+GATES = {"rz": RZGate(Parameter("theta")), "sx": SXGate(), "x": XGate(),
+         "cx": CXGate(), "cz": CZGate(), "iswap": iSwapGate(), "measure": Measure()}
+
+qprops = [QubitProperties(frequency=q["frequency_GHz"] * 1e9,
+                          t1=q["T1_us"] * 1e-6, t2=q["T2_us"] * 1e-6) for q in d["qubits"]]
+target = Target(num_qubits=d["num_qubits"], qubit_properties=qprops, dt=2.2222e-9)
+for name in d["basis_gates"]:
+    props = {tuple(i["qargs"]): InstructionProperties(duration=i["duration_s"], error=i["error"])
+             for i in d["instructions"] if i["gate"] == name}
+    target.add_instruction(GATES[name], props)
+
+# Transpile any circuit onto YOUR chip's topology, gates and error rates:
+from qiskit import QuantumCircuit, transpile
+qc = QuantumCircuit(d["num_qubits"]); qc.h(0)
+if d["num_qubits"] > 1: qc.cx(0, 1)
+qc.measure_all()
+print(transpile(qc, target=target))`;
+}
+
+function QiskitTargetModal({ open, onClose, data, loading }: {
+  open: boolean; onClose: () => void; data: any; loading: boolean;
+}) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const ok = data && !data.error;
+  const copy = async (text: string, key: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(() => setCopied(null), 1500);
+    } catch { /* clipboard blocked — ignore */ }
+  };
+  const download = () => {
+    if (!ok) return;
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${data.design_id || "qrivara"}_qiskit_target.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="xl"
+      title="Export to Qiskit — chip digital twin"
+      description="Transpile and simulate circuits against the chip you designed."
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Close</Button>
+          <Button
+            variant="outline"
+            icon={copied === "json" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            onClick={() => copy(JSON.stringify(data, null, 2), "json")}
+            disabled={!ok}
+          >
+            Copy JSON
+          </Button>
+          <Button icon={<Download className="h-4 w-4" />} onClick={download} disabled={!ok}>
+            Download target.json
+          </Button>
+        </>
+      }
+    >
+      {loading ? (
+        <div className="py-10 text-center text-sm text-fg-subtle">
+          Assembling the Qiskit Target from your simulation results…
+        </div>
+      ) : !data ? null : data.error ? (
+        <div className="rounded-lg border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
+          {data.error}
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge tone="primary">{data.num_qubits} qubits</Badge>
+            <Badge tone="cyan">2Q gate: {data.two_qubit_gate}</Badge>
+            <Badge tone="violet">basis: {(data.basis_gates || []).join(", ")}</Badge>
+            <Badge tone={data.qiskit_installed ? "success" : "warning"}>
+              {data.qiskit_installed ? "qiskit available on server" : "descriptor is portable (no qiskit needed)"}
+            </Badge>
+          </div>
+          <p className="text-2xs text-fg-subtle">
+            Assembled from: {(data.simulation_types_used || []).join(" · ") || "live Hamiltonian solve"}
+          </p>
+
+          <div>
+            <div className="mb-2 text-sm font-semibold">Qubit properties</div>
+            <div className="overflow-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-fg-subtle">
+                    <th className="p-1.5 text-left">Q</th>
+                    <th className="p-1.5 text-right">f₀₁ (GHz)</th>
+                    <th className="p-1.5 text-right">α (MHz)</th>
+                    <th className="p-1.5 text-right">T₁ (µs)</th>
+                    <th className="p-1.5 text-right">T₂ (µs)</th>
+                    <th className="p-1.5 text-right">RO error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(data.qubits || []).map((q: any) => (
+                    <tr key={q.index} className="border-t border-line">
+                      <td className="p-1.5 font-mono">{q.index}</td>
+                      <td className="p-1.5 text-right font-mono">{num(q.frequency_GHz).toFixed(4)}</td>
+                      <td className="p-1.5 text-right font-mono">{num(q.anharmonicity_MHz).toFixed(1)}</td>
+                      <td className="p-1.5 text-right font-mono">{num(q.T1_us).toFixed(1)}</td>
+                      <td className="p-1.5 text-right font-mono">{num(q.T2_us).toFixed(1)}</td>
+                      <td className="p-1.5 text-right font-mono">{num(q.readout_error).toFixed(4)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="text-xs">
+            <span className="font-semibold">Coupling map: </span>
+            <span className="font-mono text-fg-muted">{JSON.stringify(data.coupling_map)}</span>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-sm font-semibold">Load it in Qiskit</div>
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={copied === "py" ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                onClick={() => copy(qiskitSnippet(data), "py")}
+              >
+                Copy
+              </Button>
+            </div>
+            <pre className="max-h-72 overflow-auto rounded-lg border border-line bg-bg-deep/60 p-3 text-2xs leading-relaxed text-fg-muted">
+              {qiskitSnippet(data)}
+            </pre>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -286,6 +569,63 @@ function ParamBar({ tab, params, setParams, onRun, running }: any) {
             <Mini label="1Q gate (ns)"><Input value={params.t_gate_1q_ns ?? 20} onChange={(e) => set("t_gate_1q_ns", Number(e.target.value))} /></Mini>
             <Mini label="2Q gate (ns)"><Input value={params.t_gate_2q_ns ?? 200} onChange={(e) => set("t_gate_2q_ns", Number(e.target.value))} /></Mini>
             <Mini label="Residual ZZ (kHz)"><Input value={params.zz_kHz ?? 20} onChange={(e) => set("zz_kHz", Number(e.target.value))} /></Mini>
+          </>
+        )}
+        {tab === "decoherence" && (
+          <>
+            <Mini label="f₀₁ (GHz)"><Input value={params.f01_GHz ?? 5.0} onChange={(e) => set("f01_GHz", Number(e.target.value))} /></Mini>
+            <Mini label="κ (MHz)"><Input value={params.kappa_MHz ?? 1.2} onChange={(e) => set("kappa_MHz", Number(e.target.value))} /></Mini>
+            <Mini label="Tunable (flux)">
+              <Select value={params.tunable ? "yes" : "no"} onChange={(e) => set("tunable", e.target.value === "yes")}>
+                <option value="no">Fixed</option>
+                <option value="yes">Tunable</option>
+              </Select>
+            </Mini>
+          </>
+        )}
+        {tab === "flux_spectrum" && (
+          <Mini label="Junction asym. d"><Input value={params.junction_asymmetry ?? 0.1} onChange={(e) => set("junction_asymmetry", Number(e.target.value))} /></Mini>
+        )}
+        {tab === "field_solver" && (
+          <>
+            <Mini label="Substrate εr">
+              <Select value={params.eps_substrate ?? 11.7} onChange={(e) => set("eps_substrate", Number(e.target.value))}>
+                <option value={11.7}>Silicon (11.7)</option>
+                <option value={9.8}>Sapphire (9.8)</option>
+                <option value={3.8}>Quartz (3.8)</option>
+                <option value={1}>Vacuum (1.0)</option>
+              </Select>
+            </Mini>
+            <Mini label="Grid nodes"><Input value={params.max_nodes ?? 120000} onChange={(e) => set("max_nodes", Number(e.target.value))} /></Mini>
+          </>
+        )}
+        {tab === "two_qubit_gate" && (
+          <>
+            <Mini label="Gate">
+              <Select value={params.gate ?? "cz"} onChange={(e) => set("gate", e.target.value)}>
+                <option value="cz">CZ (controlled-phase)</option>
+                <option value="iswap">iSWAP</option>
+                <option value="cr">Cross-Resonance</option>
+              </Select>
+            </Mini>
+            <Mini label="Coupling g (MHz)"><Input value={params.g_MHz ?? 12} onChange={(e) => set("g_MHz", Number(e.target.value))} /></Mini>
+            {params.gate === "cr" && (
+              <Mini label="CR drive (MHz)"><Input value={params.drive_MHz ?? 50} onChange={(e) => set("drive_MHz", Number(e.target.value))} /></Mini>
+            )}
+          </>
+        )}
+        {tab === "frequency_collisions" && (
+          <>
+            <Mini label="Topology">
+              <Select value={params.topology ?? "heavy_hex"} onChange={(e) => set("topology", e.target.value)}>
+                <option value="heavy_hex">Heavy-hex (CR)</option>
+                <option value="grid">Square grid</option>
+                <option value="chain">Linear chain</option>
+                <option value="auto">From layout</option>
+              </Select>
+            </Mini>
+            <Mini label="Qubits"><Input value={params.n_qubits ?? 18} onChange={(e) => set("n_qubits", Number(e.target.value))} /></Mini>
+            <Mini label="Fab σ (MHz)"><Input value={params.sigma_MHz ?? 15} onChange={(e) => set("sigma_MHz", Number(e.target.value))} /></Mini>
           </>
         )}
         {tab === "readout" && (
@@ -373,6 +713,107 @@ function FrequencyView({ res }: { res: any }) {
         <MetricCard label="Q factor" value={(num(res.Qc) / 1000).toFixed(1)} unit="k" tone="cyan" />
         <MetricCard label="Linewidth (κ)" value={res.kappa_MHz ?? "—"} unit="MHz" tone="violet" />
       </div>
+    </div>
+  );
+}
+
+/** Field colormap: φ in [0,1] → blue (cold) through orange (hot). */
+function fieldColor(v: number) {
+  const p = Math.max(0, Math.min(1, v));
+  return `hsl(${220 - 190 * p} 78% ${30 + 42 * p}%)`;
+}
+
+function FieldHeatmap({ field }: { field: any }) {
+  const z: number[][] = field?.z || [];
+  const ny = z.length;
+  const nx = ny ? z[0].length : 0;
+  if (!nx || !ny) return null;
+  return (
+    <svg
+      viewBox={`0 0 ${nx} ${ny}`}
+      width="100%"
+      preserveAspectRatio="xMidYMid meet"
+      className="rounded-lg border border-line"
+      style={{ maxHeight: 360, background: fieldColor(0) }}
+    >
+      {z.map((row, j) =>
+        row.map((v, i) => (
+          <rect key={`${i}-${j}`} x={i} y={j} width={1.02} height={1.02} fill={fieldColor(v)} />
+        )),
+      )}
+    </svg>
+  );
+}
+
+function FieldSolverView({ res }: { res: any }) {
+  if (!res?.field_map || !Array.isArray(res?.maxwell_matrix_fF)) {
+    return res?.method ? (
+      <div className="rounded-xl border border-line bg-surface-2 p-8 text-center text-sm text-fg-subtle">{res.method}</div>
+    ) : <NoData />;
+  }
+  const labels: string[] = res.labels || [];
+  const selfC: number[] = res.self_capacitance_fF || [];
+  const err = num(res.convergence_error_pct);
+  const xs: number[] = res.field_map.x_um || [];
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label={`Self-C (${labels[0] ?? "Q1"})`} value={num(selfC[0]).toFixed(1)} unit="fF" tone="primary" />
+        <MetricCard label="ε_eff (field-derived)" value={num(res.eps_eff).toFixed(2)} tone="cyan" />
+        <MetricCard label="Grid convergence" value={`±${err.toFixed(1)}`} unit="%" tone={err < 3 ? "success" : err < 8 ? "primary" : "warning"} />
+        <MetricCard label="Grid nodes" value={num(res.grid?.nodes).toLocaleString()} tone="violet" />
+      </div>
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-5">
+          <div className="text-sm font-semibold">
+            Solved electrostatic potential <span className="font-normal text-fg-subtle">· {res.field_map.energized} energised to 1 V, ∇·(ε∇φ)=0</span>
+          </div>
+          <Badge tone="primary">3-D FEM</Badge>
+        </div>
+        <CardContent className="pt-4">
+          <FieldHeatmap field={res.field_map} />
+          <div className="mt-2 flex items-center justify-between text-2xs text-fg-subtle">
+            <span>chip surface · x {xs.length ? `${xs[0]}…${xs[xs.length - 1]} µm` : ""}</span>
+            <span className="flex items-center gap-1.5">
+              0&nbsp;V
+              <span className="inline-block h-2 w-24 rounded-full" style={{ background: `linear-gradient(90deg, ${fieldColor(0)}, ${fieldColor(0.5)}, ${fieldColor(1)})` }} />
+              1&nbsp;V
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <div className="px-5 pt-5 text-sm font-semibold">Maxwell capacitance matrix (fF) <span className="font-normal text-fg-subtle">· from the solved field</span></div>
+        <CardContent className="overflow-auto pt-4">
+          <table className="w-full max-w-lg text-xs font-mono">
+            <thead>
+              <tr>
+                <th className="p-2"></th>
+                {labels.map((l) => <th key={l} className="p-2 text-fg-subtle">{l}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {res.maxwell_matrix_fF.map((row: number[], i: number) => (
+                <tr key={i}>
+                  <td className="p-2 font-semibold text-fg">{labels[i]}</td>
+                  {(row || []).map((v: number, j: number) => (
+                    <td key={j} className={cn("border border-line p-2 text-center", i === j ? "bg-primary/10 text-primary" : "text-fg-muted")}>
+                      {num(v).toFixed(2)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-3 max-w-2xl text-2xs text-fg-subtle">
+            Diagonal = self-capacitance to ground; off-diagonal = −mutual. Solved on an edge-conforming grid
+            (pad edges are grid lines → exact areas), so the result is grid-converged to ±{err.toFixed(1)}%.
+          </p>
+        </CardContent>
+      </Card>
+      <p className="text-2xs text-fg-subtle">{res.method}</p>
     </div>
   );
 }
@@ -798,6 +1239,351 @@ function GateFidelityView({ res }: { res: any }) {
   );
 }
 
+function TwoQubitGateView({ res }: { res: any }) {
+  if (res?.fidelity_pct == null || !Array.isArray(res?.trajectory)) return <NoData />;
+  const basis = ["00", "01", "10", "11"];
+  const fid = num(res.fidelity_pct);
+  const gate: string = res.gate || "";
+  const isCZ = gate === "CZ";
+  // What the population trace should show, per gate — orients the reader.
+  const dynamicsHint = isCZ
+    ? "|11⟩ swaps to the non-computational |02⟩ state and back; at the gate time it returns to |11⟩ having picked up the conditional phase."
+    : gate.toLowerCase().includes("swap")
+      ? "Excitation is exchanged |01⟩ ⇄ |10⟩; a full transfer at the gate time is the iSWAP."
+      : "The driven control conditionally rotates the target; the dashed line is population leaking out of the computational subspace.";
+  // |U| caption — CZ magnitudes are identity by design (the gate is the phase).
+  const uHint = isCZ
+    ? "CZ acts only through phase, so |U| magnitudes are the identity — the gate is the −1 (≈180°) conditional phase on |11⟩ shown above, not a population change."
+    : gate.toLowerCase().includes("swap")
+      ? "iSWAP swaps the |01⟩ and |10⟩ amplitudes (the two off-diagonal 1's), with |00⟩ and |11⟩ unchanged."
+      : "Cross-resonance entangles control and target (ZX): each control state drives a different target rotation — the locally-equivalent CNOT.";
+  return (
+    <div className="space-y-5">
+      {res.coupling_note && (
+        <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs font-medium text-warning">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{res.coupling_note}</span>
+        </div>
+      )}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label="Avg gate fidelity" value={fid.toFixed(3)} unit="%" tone={fid > 99 ? "success" : fid > 95 ? "primary" : "warning"} />
+        <MetricCard label="Leakage" value={num(res.leakage_pct).toFixed(3)} unit="%" tone={num(res.leakage_pct) < 0.5 ? "success" : "warning"} />
+        <MetricCard label="Gate time" value={num(res.t_gate_ns).toFixed(1)} unit="ns" tone="cyan" />
+        <MetricCard
+          label={isCZ ? "Conditional phase" : "Coupling g"}
+          value={isCZ ? num(res.conditional_phase_deg).toFixed(0) : num(res.g_MHz).toFixed(1)}
+          unit={isCZ ? "°" : "MHz"}
+          tone="violet"
+        />
+      </div>
+
+      {res.calibration && (
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-5">
+            <div>
+              <div className="text-sm font-semibold">Closed-loop pulse calibration</div>
+              <p className="mt-0.5 max-w-2xl text-2xs text-fg-subtle">
+                The pulse knobs below were tuned by Nelder-Mead to maximise the leakage-aware
+                fidelity to ZX(π/2) — a real in-silico calibration of the two-tone echoed
+                cross-resonance gate (Sheldon 2016; Sundaresan 2020). Every value is a solved
+                two-qutrit propagator, not an estimate.
+              </p>
+            </div>
+            <Badge tone="success">QuTiP · two-tone CR + DRAG</Badge>
+          </div>
+          <CardContent className="pt-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {([
+                ["CR drive amplitude", `${num(res.calibration.cr_amp_MHz).toFixed(1)} MHz`, "Gaussian drive on the control at the target frequency"],
+                ["Cancellation tone", `${num(res.calibration.cancel_amp_MHz).toFixed(1)} MHz @ ${num(res.calibration.cancel_phase_deg).toFixed(0)}°`, "Driven on the target — nulls the residual IX crosstalk"],
+                ["DRAG weight", num(res.calibration.drag_weight).toFixed(2), "Y-quadrature ∝ envelope slope — suppresses |1⟩→|2⟩ leakage"],
+                ["Control qubit", res.calibration.control_is_q2 ? "Q2 (higher f)" : "Q1 (higher f)", "CR requires the control to be the higher-frequency transmon"],
+              ] as [string, string, string][]).map(([l, v, h]) => (
+                <div key={l} className="rounded-lg border border-line bg-surface/40 p-3">
+                  <div className="text-2xs uppercase tracking-wide text-fg-subtle">{l}</div>
+                  <div className="mt-1 font-mono text-sm font-semibold text-fg">{v}</div>
+                  <div className="mt-1 text-2xs leading-snug text-fg-subtle">{h}</div>
+                </div>
+              ))}
+            </div>
+            {res.analytic_fidelity_pct != null && (
+              <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-fg-subtle">Un-calibrated square-pulse estimate</span>
+                <span className="font-mono text-fg-muted">{num(res.analytic_fidelity_pct).toFixed(2)}%</span>
+                <span className="text-success">→</span>
+                <span className="text-fg-subtle">DRAG-calibrated</span>
+                <span className="font-mono font-semibold text-success">{fid.toFixed(2)}%</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {res.coherence && (
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-5">
+            <div>
+              <div className="text-sm font-semibold">
+                On-chip fidelity estimate <span className="font-normal text-fg-subtle">· with the design&apos;s T₁/T₂</span>
+              </div>
+              <p className="mt-0.5 max-w-2xl text-2xs text-fg-subtle">{res.coherence.note}</p>
+            </div>
+            <Badge tone={num(res.coherence.onchip_fidelity_pct) > 99 ? "success" : "primary"}>realistic estimate</Badge>
+          </div>
+          <CardContent className="pt-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <MetricCard
+                label="On-chip fidelity"
+                value={num(res.coherence.onchip_fidelity_pct).toFixed(3)}
+                unit="%"
+                tone={num(res.coherence.onchip_fidelity_pct) > 99 ? "success" : num(res.coherence.onchip_fidelity_pct) > 95 ? "primary" : "warning"}
+              />
+              <MetricCard label="Control error" value={num(res.coherence.control_error_pct).toFixed(3)} unit="%" tone="cyan" />
+              <MetricCard label="T₁/T₂ error" value={num(res.coherence.coherence_error_pct).toFixed(3)} unit="%" tone="violet" />
+              <MetricCard
+                label="Static ZZ"
+                value={res.coherence.zz_near_collision ? "near coll." : num(res.coherence.zz_kHz).toFixed(0)}
+                unit={res.coherence.zz_near_collision ? "" : "kHz"}
+                tone={res.coherence.zz_near_collision ? "warning" : "primary"}
+              />
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-fg-subtle">Coherent-control</span>
+              <span className="font-mono text-fg-muted">{fid.toFixed(2)}%</span>
+              <span className="text-success">— add T₁/T₂ →</span>
+              <span className="font-mono font-semibold text-success">{num(res.coherence.onchip_fidelity_pct).toFixed(2)}%</span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-2xs text-fg-subtle">
+              <span>Q1: T₁ {num(res.coherence.T1_q1_us).toFixed(0)} µs · T₂ {num(res.coherence.T2_q1_us).toFixed(0)} µs</span>
+              <span>Q2: T₁ {num(res.coherence.T1_q2_us).toFixed(0)} µs · T₂ {num(res.coherence.T2_q2_us).toFixed(0)} µs</span>
+              <span>Source: {res.coherence.t1t2_source}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-5">
+          <div>
+            <div className="text-sm font-semibold">
+              Population dynamics — {gate} <span className="font-normal text-fg-subtle">· initial |{res.init_state}⟩</span>
+            </div>
+            <p className="mt-0.5 max-w-2xl text-2xs text-fg-subtle">{dynamicsHint}</p>
+          </div>
+          <Badge tone="primary">leakage-aware fidelity (Pedersen 2007)</Badge>
+        </div>
+        <CardContent className="pt-4">
+          <ResponsiveContainer width="100%" height={320}>
+            <LineChart data={res.trajectory} margin={{ top: 6, right: 12, left: -8, bottom: 0 }}>
+              <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="t_ns" type="number" domain={[0, "dataMax"]} {...axisProps} unit=" ns" tickFormatter={(v) => v.toFixed(0)} />
+              <YAxis {...axisProps} domain={[0, 1]} tickFormatter={(v) => v.toFixed(1)} />
+              <RTooltip content={<ChartTooltip />} />
+              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} iconType="plainline" />
+              {/* gate completes here */}
+              <ReferenceLine
+                x={num(res.t_gate_ns)}
+                stroke={CHART.success}
+                strokeDasharray="5 4"
+                label={{ value: "gate", position: "top", fill: CHART.success, fontSize: 10 }}
+              />
+              <Line type="monotone" name="|00⟩" dataKey="p00" stroke={CHART.axis} strokeWidth={1.5} dot={false} />
+              <Line type="monotone" name="|01⟩" dataKey="p01" stroke={CHART.cyan} strokeWidth={2} dot={false} />
+              <Line type="monotone" name="|10⟩" dataKey="p10" stroke={CHART.primary} strokeWidth={2} dot={false} />
+              <Line type="monotone" name="|11⟩" dataKey="p11" stroke={CHART.violet} strokeWidth={2} dot={false} />
+              <Line type="monotone" name="leakage" dataKey="leak" stroke={CHART.error} strokeWidth={1.5} strokeDasharray="4 3" dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
+      {Array.isArray(res.U_abs) && (
+        <Card>
+          <div className="px-5 pt-5 text-sm font-semibold">|U| — achieved 2-qubit unitary (magnitudes)</div>
+          <CardContent className="overflow-auto pt-4">
+            <table className="w-full max-w-md text-xs font-mono">
+              <thead>
+                <tr>
+                  <th className="p-2"></th>
+                  {basis.map((b) => <th key={b} className="p-2 text-fg-subtle">|{b}⟩</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {res.U_abs.map((row: number[], i: number) => (
+                  <tr key={i}>
+                    <td className="p-2 font-semibold text-fg">⟨{basis[i]}|</td>
+                    {(row || []).map((v: number, j: number) => (
+                      <td
+                        key={j}
+                        className={cn("border border-line p-2 text-center", num(v) > 0.5 ? "bg-primary/10 text-primary" : num(v) > 0.1 ? "text-fg-muted" : "text-fg-subtle/50")}
+                      >
+                        {num(v).toFixed(2)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="mt-3 max-w-2xl text-2xs text-fg-subtle">{uHint}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {res.note && (
+        <div className="flex items-start gap-2 rounded-lg border border-cyan/20 bg-cyan/5 px-3 py-2 text-xs text-fg-muted">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan" />
+          <span>{res.note}</span>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-2xs text-fg-subtle">
+        <span>Operating point: f₁ = {num(res.f1_op_GHz).toFixed(3)} GHz · f₂ = {num(res.f2_op_GHz).toFixed(3)} GHz</span>
+        {res.source && <span>Source: {res.source}</span>}
+      </div>
+      <p className="text-2xs text-fg-subtle">{res.method}</p>
+    </div>
+  );
+}
+
+/** Green→red heat for a collision probability in [0,1]. */
+function collisionColor(prob: number) {
+  const p = Math.max(0, Math.min(1, prob));
+  return `hsl(${(1 - p) * 140} 70% 48%)`;
+}
+
+function LatticeMap({ nodes, edges }: { nodes: any[]; edges: any[] }) {
+  if (!nodes.length) return null;
+  const xs = nodes.map((n) => n.x), ys = nodes.map((n) => n.y);
+  const minx = Math.min(...xs), maxx = Math.max(...xs);
+  const miny = Math.min(...ys), maxy = Math.max(...ys);
+  const W = 460, pad = 30;
+  const aspect = (maxy - miny + 1) / (maxx - minx + 1 || 1);
+  const H = Math.max(150, Math.min(360, W * aspect));
+  const sx = (x: number) => pad + (maxx > minx ? (x - minx) / (maxx - minx) : 0.5) * (W - 2 * pad);
+  const sy = (y: number) => pad + (maxy > miny ? (y - miny) / (maxy - miny) : 0.5) * (H - 2 * pad);
+  const r = nodes.length > 28 ? 7 : 11;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" className="overflow-visible">
+      {edges.map((e, i) => {
+        const a = nodes[e.a], b = nodes[e.b];
+        if (!a || !b) return null;
+        return (
+          <line key={i} x1={sx(a.x)} y1={sy(a.y)} x2={sx(b.x)} y2={sy(b.y)}
+            stroke={collisionColor(e.collision_prob)} strokeWidth={e.collision_prob > 0.15 ? 3 : 2}
+            strokeOpacity={0.55} />
+        );
+      })}
+      {nodes.map((n, i) => (
+        <g key={i}>
+          <circle cx={sx(n.x)} cy={sy(n.y)} r={r} fill={collisionColor(n.collision_prob)}
+            stroke="rgb(var(--surface))" strokeWidth={2}>
+            <title>{`${n.id}: ${n.f_GHz} GHz · collision ${(n.collision_prob * 100).toFixed(0)}%`}</title>
+          </circle>
+          {nodes.length <= 28 && (
+            <text x={sx(n.x)} y={sy(n.y) + r + 9} textAnchor="middle"
+              fontSize="8" fill="rgb(var(--fg-subtle))" className="font-mono">
+              {n.f_GHz.toFixed(2)}
+            </text>
+          )}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function FrequencyCollisionView({ res }: { res: any }) {
+  if (res?.yield_pct == null || !Array.isArray(res?.lattice_nodes)) return <NoData />;
+  const y = num(res.yield_pct);
+  const nom = num(res.nominal_yield_pct);
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label="Fabrication yield" value={y.toFixed(1)} unit="%" tone={y > 80 ? "success" : y > 40 ? "warning" : "danger"} />
+        <MetricCard label="Nominal plan yield" value={nom.toFixed(0)} unit="%" tone={nom > 99 ? "success" : "warning"} />
+        <MetricCard label="Lattice" value={res.n_qubits} unit="qubits" tone="cyan" />
+        <MetricCard label="Fab precision σ" value={num(res.sigma_MHz).toFixed(0)} unit="MHz" tone="violet" />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-5">
+            <div>
+              <div className="text-sm font-semibold">Collision map</div>
+              <p className="mt-0.5 text-2xs text-fg-subtle">{res.topology} · node/bond colour = collision probability</p>
+            </div>
+            <div className="flex items-center gap-1.5 text-2xs text-fg-subtle">
+              <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: collisionColor(0) }} /> safe
+              <span className="ml-2 inline-block h-2.5 w-2.5 rounded-full" style={{ background: collisionColor(1) }} /> collision-prone
+            </div>
+          </div>
+          <CardContent className="pt-4">
+            <LatticeMap nodes={res.lattice_nodes} edges={res.lattice_edges || []} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <div className="px-5 pt-5">
+            <div className="text-sm font-semibold">Yield vs fabrication precision</div>
+            <p className="mt-0.5 text-2xs text-fg-subtle">Tighter σ (e.g. laser-annealing) lifts whole-chip yield</p>
+          </div>
+          <CardContent className="pt-4">
+            <ResponsiveContainer width="100%" height={260}>
+              <AreaChart data={res.yield_curve} margin={{ top: 6, right: 12, left: -10, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="yield-fill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={CHART.success} stopOpacity={0.3} />
+                    <stop offset="100%" stopColor={CHART.success} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="sigma_MHz" type="number" domain={[0, "dataMax"]} {...axisProps} unit=" MHz" tickFormatter={(v) => v.toFixed(0)} />
+                <YAxis {...axisProps} domain={[0, 100]} unit="%" />
+                <RTooltip content={<ChartTooltip unit="%" />} />
+                <ReferenceLine x={num(res.sigma_MHz)} stroke={CHART.violet} strokeDasharray="5 4"
+                  label={{ value: "σ", position: "top", fill: CHART.violet, fontSize: 10 }} />
+                <Area type="monotone" name="Yield" dataKey="yield_pct" stroke={CHART.success} strokeWidth={2.5} fill="url(#yield-fill)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      {Array.isArray(res.collision_breakdown) && res.collision_breakdown.length > 0 && (
+        <Card>
+          <div className="px-5 pt-5 text-sm font-semibold">Collision-type incidence — mean collisions per chip (σ={num(res.sigma_MHz).toFixed(0)} MHz)</div>
+          <CardContent className="space-y-2 pt-4">
+            {res.collision_breakdown.map((b: any) => {
+              const frac = Math.min(1, num(b.incidence) / Math.max(num(res.collision_breakdown[0].incidence), 0.001));
+              return (
+                <div key={b.type} className="flex items-center gap-3">
+                  <span className="w-56 shrink-0 text-xs text-fg-muted">{b.name}</span>
+                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-3">
+                    <div className="h-full rounded-full bg-primary" style={{ width: `${frac * 100}%` }} />
+                  </div>
+                  <span className="w-12 shrink-0 text-right font-mono text-xs text-fg">{num(b.incidence).toFixed(2)}</span>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
+      {Array.isArray(res.recommendations) && (
+        <div className="rounded-xl border border-cyan/20 bg-cyan/5 p-4">
+          <p className="mb-1.5 text-sm font-semibold text-fg">Recommendations</p>
+          <ul className="space-y-1">
+            {res.recommendations.map((rec: string, i: number) => (
+              <li key={i} className="flex items-start gap-2 text-xs text-fg-muted">
+                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan" /> {rec}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <p className="text-2xs text-fg-subtle">{res.method}</p>
+    </div>
+  );
+}
+
 function ReadoutView({ res }: { res: any }) {
   if (res?.assignment_fidelity_pct == null) return <NoData />;
   return (
@@ -908,13 +1694,164 @@ function FeedbackView({ res }: { res: any }) {
 }
 
 function MeshView({ res }: { res: any }) {
-  if (res?.elements == null) return <NoData />;
+  // Backend (_mesh / fem3d.grid_stats) reports the REAL voxel grid the field solver
+  // discretises onto: cell size, grid dimensions, node/cell counts, bounding box.
+  if (res?.nodes == null && res?.cells == null) return <NoData />;
+  const bbox = res.bbox_um || {};
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <MetricCard label="Elements" value={num(res.elements).toLocaleString()} tone="neutral" />
-      <MetricCard label="Nodes" value={num(res.nodes).toLocaleString()} tone="neutral" />
-      <MetricCard label="Quality" value={res.quality ?? "—"} tone="success" />
-      <MetricCard label="Regions" value={res.regions ?? "—"} tone="primary" />
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label="Grid nodes" value={num(res.nodes).toLocaleString()} tone="primary" />
+        <MetricCard label="Cells (voxels)" value={num(res.cells).toLocaleString()} tone="cyan" />
+        <MetricCard label="Cell size" value={num(res.cell_size_um).toFixed(2)} unit="µm" tone="violet" />
+        <MetricCard label="Conductors" value={res.conductors ?? "—"} tone="neutral" />
+      </div>
+      <Card>
+        <div className="px-5 pt-5 text-sm font-semibold">Discretisation grid</div>
+        <CardContent className="space-y-2 pt-4 text-sm">
+          <MetricRow label="Grid dimensions (nx × ny × nz)" value={res.grid_dimensions ?? "—"} />
+          <MetricRow label="Scheme" value={res.scheme ?? "structured voxel grid"} />
+          {bbox.x0 != null && (
+            <MetricRow
+              label="Domain bbox (µm)"
+              value={`[${num(bbox.x0).toFixed(0)}, ${num(bbox.y0).toFixed(0)}] → [${num(bbox.x1).toFixed(0)}, ${num(bbox.y1).toFixed(0)}]`}
+            />
+          )}
+        </CardContent>
+      </Card>
+      <p className="text-2xs text-fg-subtle">{res.method}</p>
+    </div>
+  );
+}
+
+function FluxSpectrumView({ res }: { res: any }) {
+  if (!Array.isArray(res?.spectrum) || !res.spectrum.length) return <NoData />;
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label="Upper sweet spot" value={num(res.upper_sweet_spot_GHz).toFixed(3)} unit="GHz" tone="primary" />
+        <MetricCard label="Lower sweet spot" value={num(res.lower_sweet_spot_GHz).toFixed(3)} unit="GHz" tone="cyan" />
+        <MetricCard label="Tunable range" value={num(res.tunable_range_GHz).toFixed(3)} unit="GHz" tone="violet" />
+        <MetricCard label="∂f/∂Φ (max)" value={num(res.flux_sensitivity_GHz_per_Phi0).toFixed(2)} unit="GHz/Φ₀" tone="warning" />
+      </div>
+      <Card>
+        <div className="px-5 pt-5 text-sm font-semibold">f₀₁ vs external flux Φ/Φ₀ <span className="font-normal text-fg-subtle">· asymmetric-SQUID exact spectrum</span></div>
+        <CardContent className="pt-4">
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={res.spectrum} margin={{ top: 6, right: 12, left: -8, bottom: 0 }}>
+              <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="flux" {...axisProps} tickFormatter={(v) => v.toFixed(2)} />
+              <YAxis {...axisProps} unit=" GHz" domain={["auto", "auto"]} />
+              <RTooltip content={<ChartTooltip unit="GHz" />} />
+              <Line type="monotone" name="f₀₁" dataKey="f01_GHz" stroke={CHART.primary} strokeWidth={2.5} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+      <p className="text-2xs text-fg-subtle">{res.method}</p>
+    </div>
+  );
+}
+
+function CoupledSpectrumView({ res }: { res: any }) {
+  if (res?.f01_q1_GHz == null) return <NoData />;
+  const exact = res.exact_zz_kHz;
+  const pert = res.perturbative_zz_kHz;
+  const levels: number[] = Array.isArray(res.dressed_levels_GHz) ? res.dressed_levels_GHz : [];
+  const max = levels.length ? levels[levels.length - 1] || 1 : 1;
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label="f₀₁ (Q1)" value={num(res.f01_q1_GHz).toFixed(4)} unit="GHz" tone="primary" />
+        <MetricCard label="f₀₁ (Q2)" value={num(res.f01_q2_GHz).toFixed(4)} unit="GHz" tone="cyan" />
+        <MetricCard label="ZZ (exact)" value={exact == null ? "—" : num(exact).toFixed(1)} unit="kHz" tone={num(exact) && Math.abs(num(exact)) > 200 ? "danger" : "success"} />
+        <MetricCard label="ZZ (perturbative)" value={num(pert).toFixed(1)} unit="kHz" tone="violet" />
+      </div>
+
+      {res.near_collision && (
+        <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs font-medium text-warning">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>Near a frequency collision — the static ZZ is large. The exact (diagonalized) value is trustworthy here; the perturbative formula over-estimates near resonance.</span>
+        </div>
+      )}
+
+      {exact != null && (
+        <div className="flex items-center gap-2 rounded-lg border border-cyan/20 bg-cyan/5 px-3 py-2 text-xs text-fg-muted">
+          <Info className="h-3.5 w-3.5 shrink-0 text-cyan" />
+          Exact dressed-state ZZ from full diagonalization vs the leading-order perturbative estimate.
+          {Math.abs(num(exact)) > 1e-9 && (
+            <span className="ml-1">Ratio exact/perturbative = <span className="font-mono text-fg">{(num(exact) / (num(pert) || 1)).toFixed(2)}</span>.</span>
+          )}
+        </div>
+      )}
+
+      {levels.length > 1 && (
+        <Card>
+          <div className="px-5 pt-5 text-sm font-semibold">Dressed energy levels <span className="font-normal text-fg-subtle">· two-transmon Hilbert space</span></div>
+          <CardContent className="space-y-1.5 pt-4">
+            {levels.map((lv, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <span className="w-12 shrink-0 font-mono text-2xs text-fg-subtle">E{i}</span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-3">
+                  <div className="h-full rounded-full bg-primary" style={{ width: `${(num(lv) / max) * 100}%` }} />
+                </div>
+                <span className="w-24 shrink-0 text-right font-mono text-xs text-fg-muted">{num(lv).toFixed(4)} GHz</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+      {res.source && <p className="text-2xs text-fg-subtle">Source: {res.source}</p>}
+      <p className="text-2xs text-fg-subtle">{res.method}</p>
+    </div>
+  );
+}
+
+function DecoherenceView({ res }: { res: any }) {
+  if (res?.T1_total_us == null) return <NoData />;
+  const t1Channels = [
+    ["Dielectric / TLS", res.T1_dielectric_us],
+    ["Purcell", res.T1_purcell_us],
+    ["Quasiparticle", res.T1_quasiparticle_us],
+  ].filter(([, v]) => v != null) as [string, number][];
+  const tphiChannels = [
+    ["Photon shot-noise", res.Tphi_photon_us],
+    ["Flux noise (1/f)", res.Tphi_flux_us],
+  ].filter(([, v]) => v != null) as [string, number][];
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label="T₁ (total)" value={num(res.T1_total_us).toFixed(1)} unit="µs" tone="success" />
+        <MetricCard label="T₂ echo" value={num(res.T2_echo_us).toFixed(1)} unit="µs" tone="primary" />
+        <MetricCard label="T₂ Ramsey" value={num(res.T2_ramsey_us).toFixed(1)} unit="µs" tone="cyan" />
+        <MetricCard label="Q dielectric" value={num(res.Q_dielectric) >= 1e6 ? `${(num(res.Q_dielectric) / 1e6).toFixed(2)}M` : `${(num(res.Q_dielectric) / 1e3).toFixed(0)}k`} tone="violet" />
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <div className="px-5 pt-5 text-sm font-semibold">T₁ channels <span className="font-normal text-fg-subtle">(parallel sum)</span></div>
+          <CardContent className="space-y-2 pt-4 text-sm">
+            {t1Channels.map(([k, v]) => (
+              <MetricRow key={k} label={k} value={`${num(v).toFixed(1)} µs`} />
+            ))}
+            <div className="flex items-center justify-between border-t border-line pt-2 font-medium">
+              <span className="text-fg">T₁ total</span>
+              <span className="font-mono text-success">{num(res.T1_total_us).toFixed(1)} µs</span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <div className="px-5 pt-5 text-sm font-semibold">Dephasing (Tφ) channels</div>
+          <CardContent className="space-y-2 pt-4 text-sm">
+            {tphiChannels.length ? (
+              tphiChannels.map(([k, v]) => <MetricRow key={k} label={k} value={`${num(v).toFixed(1)} µs`} />)
+            ) : (
+              <p className="text-xs text-fg-subtle">No dephasing channels active (set Tunable for flux 1/f noise).</p>
+            )}
+            <MetricRow label="χ dispersive" value={`${num(res.chi_MHz).toFixed(3)} MHz`} />
+          </CardContent>
+        </Card>
+      </div>
+      <p className="text-2xs text-fg-subtle">{res.method}</p>
     </div>
   );
 }

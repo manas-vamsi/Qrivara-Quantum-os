@@ -22,7 +22,9 @@ export function Tabs<T extends string>({
   return (
     <div
       className={cn(
-        "flex items-center gap-1 border-b border-line",
+        // overflow-x-auto + hidden scrollbar so a long tab set scrolls gracefully
+        // instead of clipping off-screen; callers that group tabs won't trigger it.
+        "flex items-center gap-1 overflow-x-auto border-b border-line [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
         className,
       )}
     >
@@ -34,7 +36,7 @@ export function Tabs<T extends string>({
             type="button"
             onClick={() => onChange(item.value)}
             className={cn(
-              "relative inline-flex items-center gap-2 px-3.5 pb-2.5 pt-1 text-sm font-medium transition-colors duration-200",
+              "relative inline-flex shrink-0 items-center gap-2 whitespace-nowrap px-3.5 pb-2.5 pt-1 text-sm font-medium transition-colors duration-200",
               active ? "text-fg" : "text-fg-subtle hover:text-fg-muted",
             )}
           >
@@ -53,7 +55,9 @@ export function Tabs<T extends string>({
               </span>
             )}
             {active && (
-              <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary" />
+              // bottom-0 (not -bottom-px) so the indicator stays inside the box —
+              // overflow-x-auto forces overflow-y:auto, which would clip anything below.
+              <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-primary" />
             )}
           </button>
         );

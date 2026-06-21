@@ -1,10 +1,25 @@
+import { useEffect, useState } from "react";
 import { FlaskConical, Zap, Layers } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { CONDUCTORS, SUBSTRATES } from "@/data/mockData";
+import { api } from "@/lib/api";
+import { CONDUCTORS as FALLBACK_CONDUCTORS, SUBSTRATES as FALLBACK_SUBSTRATES } from "@/data/mockData";
 
 export default function MaterialLibrary() {
+  // Real material catalog from the backend (/materials); falls back to the bundled
+  // list only if the API is unreachable.
+  const [CONDUCTORS, setConductors] = useState<any[]>(FALLBACK_CONDUCTORS);
+  const [SUBSTRATES, setSubstrates] = useState<any[]>(FALLBACK_SUBSTRATES);
+  useEffect(() => {
+    api.getMaterials()
+      .then((m) => {
+        if (Array.isArray(m?.conductors) && m.conductors.length) setConductors(m.conductors);
+        if (Array.isArray(m?.substrates) && m.substrates.length) setSubstrates(m.substrates);
+      })
+      .catch(() => { /* keep fallback */ });
+  }, []);
+
   return (
     <div className="space-y-6">
       <PageHeader
