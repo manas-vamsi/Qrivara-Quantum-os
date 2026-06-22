@@ -20,6 +20,7 @@ class User(SQLModel, table=True):
     name: str
     role: str = "Quantum Engineer"
     org: str = "QRIVARA"
+    avatar_url: str = ""   # uploaded avatar as a data URL (or external URL); "" → initials
     # Social/collaboration profile (added in the collaboration module).
     handle: Optional[str] = Field(default=None, unique=True, index=True)
     headline: str = ""

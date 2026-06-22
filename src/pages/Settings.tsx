@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Palette,
   Bell,
@@ -65,12 +65,43 @@ export default function Settings() {
     bio: me?.bio ?? profile.bio ?? "",
     institution: me?.institution ?? profile.institution ?? "",
     discoverable: me?.discoverable ?? profile.discoverable ?? true,
+    avatar_url: me?.avatar_url ?? "",
   });
 
   const [draft, setDraft] = useState(getProfileData);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  // Avatar upload: read the chosen image as a data URL and persist it immediately
+  // (stored on the user, so it shows everywhere the Avatar component is used).
+  const onAvatarFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setError("Please choose an image file."); return; }
+    if (file.size > 1_000_000) { setError("Image too large — please use one under 1 MB."); return; }
+    const dataUrl: string = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result as string);
+      r.onerror = () => reject(new Error("read failed"));
+      r.readAsDataURL(file);
+    });
+    setDraft((d) => ({ ...d, avatar_url: dataUrl }));
+    setError(null);
+    setBusy(true);
+    try {
+      const u = await api.updateProfile({ avatar_url: dataUrl });
+      useAuthStore.setState({ me: u });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      setError("Avatar upload failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     setDraft(getProfileData());
@@ -91,6 +122,7 @@ export default function Settings() {
         bio: draft.bio,
         institution: draft.institution,
         discoverable: draft.discoverable,
+        avatar_url: draft.avatar_url,
       });
 
       // Update state in stores
@@ -237,16 +269,34 @@ export default function Settings() {
             <Card>
               <CardContent className="space-y-5 pt-5">
                 <div className="flex items-center gap-4">
-                  <Avatar name={draft.name || "User"} size={64} />
+                  <Avatar name={draft.name || "User"} src={draft.avatar_url} size={64} />
                   <div>
                     <h3 className="font-display text-base font-semibold text-fg">
                       {draft.name || "Unnamed"}
                     </h3>
                     <p className="text-sm text-fg-subtle">{draft.role}</p>
                   </div>
-                  <Button variant="outline" size="sm" className="ml-auto" onClick={() => comingSoon("Avatar upload")}>
-                    Change avatar
-                  </Button>
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={onAvatarFile}
+                  />
+                  <div className="ml-auto flex items-center gap-2">
+                    {draft.avatar_url && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => { setDraft((d) => ({ ...d, avatar_url: "" })); api.updateProfile({ avatar_url: "" }).then((u) => useAuthStore.setState({ me: u })).catch(() => {}); }}
+                      >
+                        Remove
+                      </Button>
+                    )}
+                    <Button variant="outline" size="sm" loading={busy} onClick={() => avatarInputRef.current?.click()}>
+                      Change avatar
+                    </Button>
+                  </div>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Full name">

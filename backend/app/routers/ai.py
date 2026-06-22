@@ -80,6 +80,108 @@ def ai_status():
     return {"configured": AI.is_configured()}
 
 
+def _heuristic_report(ctx: dict) -> dict:
+    """A real, data-driven design review derived directly from the computed physics —
+    used when no LLM provider is configured, so the advisor always works. Every line
+    is grounded in a number the engine produced (T1, anharmonicity, yield, DRC, …)."""
+    m = ctx.get("metrics", {}) or {}
+    coh = ctx.get("coherence", []) or []
+    dec = ctx.get("decoherence", {}) or {}
+    fab = ctx.get("fabrication_yield", {}) or {}
+    drc = ctx.get("validation_drc", {}) or {}
+    cc = ctx.get("component_counts", {}) or {}
+
+    f01 = m.get("frequency_GHz")
+    anh = m.get("anharmonicity_MHz")
+    g = m.get("coupling_MHz")
+    t1s = [c.get("t1") for c in coh if c.get("t1")]
+    t2s = [c.get("t2") for c in coh if c.get("t2")]
+    t1 = (sum(t1s) / len(t1s)) if t1s else dec.get("T1_total_us")
+    t2 = (sum(t2s) / len(t2s)) if t2s else dec.get("T2_echo_us")
+    yld = fab.get("yield_pct")
+    n_tx = cc.get("transmons", 0)
+    viol = drc.get("violations") or drc.get("errors") or []
+    nviol = len(viol) if isinstance(viol, list) else int(drc.get("violation_count") or 0)
+
+    strengths: list[str] = []
+    lacking: list[str] = []
+    recs: list[dict] = []
+    steps: list[str] = []
+
+    if f01:
+        strengths.append(f"Qubit frequency f₀₁ ≈ {f01:.3f} GHz sits in the standard 4–6 GHz transmon band.")
+    if anh is not None:
+        if abs(anh) >= 250:
+            strengths.append(f"Anharmonicity {anh:.0f} MHz supports fast, low-leakage single-qubit gates.")
+        else:
+            lacking.append(f"Anharmonicity {anh:.0f} MHz is low (|α| < 250 MHz) — raises gate leakage.")
+            recs.append({"priority": "medium", "area": "Qubit design",
+                         "action": "Lower the qubit capacitance Cσ to raise E_C and |α| (target |α| ≳ 270 MHz).",
+                         "impact": "Less |1⟩→|2⟩ leakage and faster gates."})
+    if t1:
+        if t1 >= 80:
+            strengths.append(f"T₁ ≈ {t1:.0f} µs is competitive.")
+        else:
+            lacking.append(f"T₁ ≈ {t1:.0f} µs is below the 80–100 µs target — relaxation limits gate & readout fidelity.")
+            recs.append({"priority": "high", "area": "Coherence",
+                         "action": "Cut surface dielectric loss (cleaner fab, wider gap-to-ground, better substrate) and check Purcell decay through the readout filter.",
+                         "impact": "Higher T₁ directly lifts the coherence-limited gate fidelity."})
+            steps.append("Run the Decoherence analysis and inspect the dielectric / Purcell / quasiparticle T₁ split.")
+    if t1 and t2 and t2 < 1.5 * t1:
+        lacking.append(f"T₂ ≈ {t2:.0f} µs is well under 2·T₁ — pure dephasing dominates.")
+        recs.append({"priority": "medium", "area": "Coherence",
+                     "action": "Operate at a flux sweet spot and lower residual cavity photons to suppress dephasing.",
+                     "impact": "Pushes T₂ toward the 2·T₁ limit."})
+    if yld is not None:
+        if yld >= 90:
+            strengths.append(f"Fabrication yield ≈ {yld:.0f}% at the modeled process spread.")
+        else:
+            lacking.append(f"Fabrication yield ≈ {yld:.0f}% — f₀₁ targeting is sensitive to junction spread.")
+            recs.append({"priority": "high", "area": "Manufacturability",
+                         "action": "Tighten junction-resistance control or add laser annealing/trimming to hit target f₀₁.",
+                         "impact": "Higher wafer yield and fewer frequency collisions."})
+            steps.append("Use the Yield (Monte-Carlo) panel to find the σ that meets your yield target.")
+    if nviol:
+        lacking.append(f"{nviol} design-rule violation(s) reported.")
+        recs.append({"priority": "critical", "area": "Layout",
+                     "action": "Resolve the DRC violations before fabrication.",
+                     "impact": "A manufacturable layout."})
+    else:
+        strengths.append("Layout passes the design-rule check.")
+    if g and g > 20:
+        lacking.append(f"Direct coupling g ≈ {g:.0f} MHz is high (qubit pads close) — risks strong static ZZ.")
+        recs.append({"priority": "medium", "area": "Coupling",
+                     "action": "Increase qubit spacing or add a tunable coupler to suppress static ZZ while keeping a fast 2Q gate.",
+                     "impact": "Lower ZZ crosstalk and higher 2Q fidelity."})
+
+    if not lacking:
+        lacking.append("No major gaps detected in the modeled metrics.")
+    if not recs:
+        recs.append({"priority": "low", "area": "General",
+                     "action": "Run the full suite (capacitance → Hamiltonian → decoherence → gates → yield) and iterate in the Optimization engine.",
+                     "impact": "Confidence the design meets all targets."})
+    steps.append("Open the Optimization engine, adjust the design parameters, and click Start to search for a better operating point.")
+
+    bits = [f"{n_tx} transmon(s)"]
+    if f01:
+        bits.append(f"f₀₁ ≈ {f01:.2f} GHz")
+    if t1:
+        bits.append(f"T₁ ≈ {t1:.0f} µs")
+    if yld is not None:
+        bits.append(f"yield ≈ {yld:.0f}%")
+    pname = (ctx.get("project", {}) or {}).get("name", "the design")
+    summary = (f"Engineering review of {pname}: " + ", ".join(bits) +
+               ". Findings below are computed directly from the design physics (no external LLM).")
+    yield_outlook = None
+    if yld is not None:
+        yield_outlook = (f"At the modeled process spread the design yields ≈{yld:.0f}%. " +
+                         ("Frequency targeting is the main lever." if yld < 90
+                          else "Yield is healthy — focus on coherence next."))
+    return {"summary": summary, "strengths": strengths, "lacking": lacking,
+            "recommendations": recs, "next_steps": steps, "yield_outlook": yield_outlook,
+            "engine": "rule-based (computed from the design physics)"}
+
+
 @router.post("/analyze")
 def analyze(body: dict, session: Session = Depends(get_session)):
     project_id = body.get("project_id")
@@ -93,10 +195,14 @@ def analyze(body: dict, session: Session = Depends(get_session)):
     ).first()
 
     context = _build_context(project, design)
+    # Prefer the LLM advisor; when no provider is configured (or it fails), fall back
+    # to a real, physics-derived rule-based review so the advisor is always functional.
     try:
         report = AI.analyze_project(context)
-    except AI.AIUnavailable as e:
-        raise HTTPException(503, str(e))
+    except AI.AIUnavailable:
+        report = _heuristic_report(context)
+    except Exception:  # noqa: BLE001 — never 500 the advisor; degrade to the heuristic
+        report = _heuristic_report(context)
     return {"project": context["project"], "context": context, "report": report}
 
 

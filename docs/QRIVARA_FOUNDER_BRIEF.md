@@ -26,29 +26,32 @@
 **Quantum physics engine (paper-validated, exact — not fits):**
 - Exact transmon (charge basis), fluxonium, SQUID flux tuning.
 - Full coherence budget: T1 (dielectric/Purcell/quasiparticle), T2 (photon-shot + flux 1/f, Ramsey/echo).
-- Time-domain 2-qubit gates (CZ/iSWAP/CR) via real Schrödinger propagation + leakage-aware fidelity.
+- Time-domain 2-qubit gates via real Schrödinger propagation + leakage-aware fidelity; **cross-resonance is DRAG-calibrated (two-tone echoed CR, QuTiP) to ~99%**, with an honest **on-chip estimate** that folds in the design's T₁/T₂.
+- **Validated against `scqubits`** to <0.001 GHz (correct, not curve-fit). **Qiskit `Target` digital-twin export** (transpile circuits against the designed chip).
 - Dispersive readout, ZZ/classical crosstalk, surface-code QEC, kinetic inductance.
 - Frequency-collision yield map (IBM heavy-hex model).
 
 **Platform (all real, backend-wired):**
-- Visual Designer (save/load/autosave/undo-redo/codegen), Code Studio (runnable-Python generation + round-trip), 3-D View.
-- Optimization (Nelder-Mead multi-objective, Pareto, MC yield, inverse design).
-- Exports: GDS-II, DXF, DRC, SPICE, Touchstone.
+- Visual Designer (save/load/autosave/undo-redo/codegen), **Code Studio — a real in-app IDE that executes Python server-side and streams output, with a VS Code-style file/folder workspace + canvas round-trip**, 3-D View.
+- **Experiments — real version history** (design snapshots with freq/fidelity evolution + comparison).
+- Optimization (Nelder-Mead multi-objective, live Pareto, MC yield, exact inverse design, **design-derived objectives / parameters / error-budget**, **AI advisor** with a physics-derived rule-based fallback).
+- **Results** with real metrics + version-evolution charts.
+- Exports: GDS-II, DXF, DRC, SPICE, Touchstone, **Qiskit `Target` digital twin**.
 - AI: NL design generation, AI advisor, agentic assistant (grounded in DB; multi-provider fallback).
-- Collaboration: sharing/RBAC, teams, messages/channels, comments, presence, notifications, profiles.
+- Collaboration: sharing/RBAC, teams, messages/channels, comments, presence, notifications, profiles, bookmarks/folders, avatar upload.
 - Dashboard with real computed KPIs.
-- FastAPI + Postgres backend, async job workers, 48 passing backend tests, clean typed frontend build.
+- FastAPI + Postgres backend, async job workers, **59 passing backend tests**, clean typed frontend build.
 
 ---
 
-## 3. What is PARTIAL / "preview" ⚠️ (works, but not the full thing)
+## 3. What is PARTIAL / scoped ⚠️ (works; honest caveats)
 
-- **Experiments page** — currently sample/preview UI. Real version-history exists in the backend (design snapshots) but isn't aggregated into the page yet. ~0.5–1 wk.
-- **A few Optimization/Results charts** (objective tracking, long-term evolution) marked "preview" pending backend aggregation.
-- **Cross-resonance gate** works but is **un-calibrated** (no DRAG/pulse-shaping) → ~90% fidelity; CZ/iSWAP are strong (98–99%).
-- **Inverse design** is analytic (target→params), not geometry/field inverse.
-- **Code Studio "Run"** does the real Code↔Designer round-trip for design scripts; for free-form physics scripts it tells the user to run locally (we deliberately don't execute arbitrary Python server-side — security).
-- **Settings** account/profile/theme are real; password/2FA/avatar/integrations are honestly marked "coming soon" (need the auth backend).
+*(Most of what used to be "preview" is now fully built — Experiments version history, the Optimization objectives/parameters/error-budget/satisfaction panels, the Results evolution charts, the DRAG-calibrated CR gate, Code Studio execution, and avatar upload all shipped. What remains:)*
+
+- **Cross-resonance gate** is now **DRAG-calibrated (two-tone, QuTiP) to ~99%**; the fast analytic ~90% estimate remains as the no-QuTiP fallback. The reported number is a **coherent-control fidelity** (ideal/instantaneous echo, no spectators) — the on-chip estimate adds T₁/T₂, but it is not a full master-equation device sim.
+- **Inverse design** is the **exact closed-form** transmon inversion (target → Cσ/Ic) — instant and correct, but not a field/geometry inverse (that's a future optimizer-in-the-loop item).
+- **Code Studio execution** runs Python server-side (real output) **behind a config flag**, fine for local/trusted use; a multi-tenant deployment needs it sandboxed/containerized (or off).
+- **Settings**: profile, avatar upload, bookmarks/folders are real; **password change + 2FA** are honestly "coming soon" because they belong to the production identity provider (Supabase), not our backend; third-party "integrations" are N/A (we replaced Ansys with our own stack).
 
 ---
 
@@ -56,10 +59,11 @@
 
 | Gap | Effort | Needs |
 |---|---|---|
-| **Full-wave EM** (3-D eigenmode + driven S-params) | Large | Integrate **Palace** (AWS, open-source) as a worker job — wrap, don't rebuild. **Needs HPC.** |
+| **Full-wave EM** (3-D eigenmode + driven S-params) | **Integration DONE; binary on HPC** | Gmsh meshing + **Palace** config + worker dispatch + analytic fallback are **built & tested**. Only the Palace MPI binary needs an HPC node to activate. |
 | **Geometry-derived T1** (surface participation from the field) | Medium | Extends our field solver; we have the field, need the loss-participation integral. |
 | **Tunable-coupler net-zero ZZ** analysis | Medium | New physics module. |
-| **Production auth + multi-tenant deploy** | Medium | Supabase/JWT wiring (scaffolded) + managed cloud. |
+| **SQuADDS library + Qiskit-Metal GDS** | Medium | Isolated worker image (their `numpy<2` clashes with our stack); wrap on the HPC tier. |
+| **Production auth + multi-tenant deploy** | Medium | Supabase/JWT wiring (scaffolded) + managed cloud. Also unblocks in-app password/2FA. |
 | **Compute scaling** (100+ qubit chips, heavy 3-D) | Medium–Large | Distributed/HPC workers — **single machine is the ceiling today.** |
 | **Live foundry/PDK + DRC packs** | Medium | Partnerships + rules data. |
 
@@ -71,13 +75,13 @@
 - **Backend:** FastAPI (Python) + Postgres (SQLModel), RBAC, async background workers for sim jobs, JWT-ready (Supabase). Dockerized + deploy scaffolding (Fly/Railway/Render + Cloudflare/Vercel) already written.
 - **Compute core:** NumPy/SciPy (FEM solvers + physics) — *pure open-source, zero licensed dependency.*
 - **AI:** multi-provider (Groq → Gemini → OpenRouter) with fallback; tool-calling grounded in the DB.
-- **Quality:** 48 backend tests, "no-fake-data" policy (every UI number is computed), screenshot-verified UI flows.
+- **Quality:** 59 backend tests, "no-fake-data" policy (every UI number is computed), screenshot-verified UI flows.
 
 ---
 
 ## 6. Honest limitations (say these out loud)
 
-1. **Quasi-static, not full-wave** — capacitance extraction is real and ±0.4% converged, but we don't yet do full-wave eigenmode/S-params. Frequencies come from the LC + Josephson model. (Palace = the fix.)
+1. **Quasi-static, not full-wave (yet on HPC)** — capacitance extraction is real and ±0.4% converged; frequencies come from the LC + Josephson model. The full-wave path (Gmsh + Palace + worker) is **built and tested with a fallback** — it just needs the Palace MPI binary on an HPC node to go live.
 2. **Compute ceiling** — 3-D FEM is capped (~6 qubits on the 3-D tier; 16-qubit FEM cap) on one machine. Bigger chips need HPC. **This is the binding constraint.**
 3. **T1 loss is parameterized**, not yet geometry-derived.
 4. **Not yet hardened for production** (auth, multi-tenant, SLA, security review for enterprise).
@@ -89,9 +93,8 @@
 
 1. **Production-ize** — auth, deploy to a live tenant, get it in front of 2–3 design partners. (Unblocks everything.)
 2. **Compute tier** — job queue + autoscaling cloud workers; then the **full-wave (Palace) tier on HPC.**
-3. **Close the physics gaps** — geometry-derived T1, tunable-coupler ZZ, DRAG gates.
-4. **Finish the "preview" UIs** — Experiments version history, the remaining Optimization/Results charts.
-5. **Land academic users** (free tier) → adoption + credibility + hiring funnel.
+3. **Close the remaining physics gaps** — geometry-derived T1 (surface participation) and tunable-coupler net-zero ZZ. *(DRAG-calibrated gates, version history, and the Optimization/Results panels are already done.)*
+4. **Land academic users** (free tier) → adoption + credibility + hiring funnel.
 
 ---
 

@@ -65,45 +65,55 @@ export default function Results() {
   }, [project, setActiveProject]);
 
   useEffect(() => {
-    if (selectedId) {
-      setLoading(true);
-      api.getProjectResults(selectedId)
-        .then((data) => {
-          // Format for UI
-          const m = data.metrics;
-          const formatted = {
-            method: data.method,
-            jobId: data.last_job_id,
-            metrics: [
-              { label: "Frequency", value: m.frequency_GHz.toFixed(3), unit: "GHz", tone: "primary" as const, icon: <Radio className="h-[1.1rem] w-[1.1rem]" /> },
-              { label: "Q Factor", value: m.q_factor_k >= 1000 ? (m.q_factor_k / 1000).toFixed(2) : m.q_factor_k.toFixed(1), unit: m.q_factor_k >= 1000 ? "M" : "k", tone: "cyan" as const, icon: <Gauge className="h-[1.1rem] w-[1.1rem]" /> },
-              { label: "Coupling", value: m.coupling_MHz.toFixed(0), unit: "MHz", tone: "violet" as const, icon: <Link2 className="h-[1.1rem] w-[1.1rem]" /> },
-              { label: "Capacitance", value: m.capacitance_fF.toFixed(1), unit: "fF", tone: "success" as const, icon: <Activity className="h-[1.1rem] w-[1.1rem]" /> },
-              { label: "Inductance", value: m.inductance_nH.toFixed(1), unit: "nH", tone: "warning" as const, icon: <Zap className="h-[1.1rem] w-[1.1rem]" /> },
-              { label: "Anharmonicity", value: m.anharmonicity_MHz.toFixed(0), unit: "MHz", tone: "violet" as const, icon: <Activity className="h-[1.1rem] w-[1.1rem]" /> },
-            ],
-            evolution: [
-              { version: "v1.0", freq: m.frequency_GHz + 0.05, fidelity: 98.5 },
-              { version: "v1.1", freq: m.frequency_GHz + 0.02, fidelity: 99.1 },
-              { version: "current", freq: m.frequency_GHz, fidelity: 99.4 },
-            ],
-            optHistory: Array.from({ length: 20 }, (_, i) => ({
-              iter: i + 1,
-              best: 0.9 * Math.exp(-i / 8) + 0.01,
-            })),
-            couplingSweep: Array.from({ length: 21 }, (_, i) => {
-              const flux = -0.5 + i / 20;
-              return { flux, g: m.coupling_MHz * Math.cos(Math.PI * flux) ** 2 };
-            }),
-            coherence: data.coherence,
-          };
-          setLiveResults(formatted);
-        })
-        .catch(console.error)
-        .finally(() => setLoading(false));
-    } else {
-      setLiveResults(null);
-    }
+    if (!selectedId) { setLiveResults(null); return; }
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const data = await api.getProjectResults(selectedId);
+        const m = data.metrics;
+        // REAL design-evolution from version snapshots (Experiments backend): each
+        // snapshot carries the design's frequency + 2Q fidelity at capture time.
+        let versions: any[] = [];
+        try {
+          const designs = await api.getProjectDesigns(selectedId);
+          const dId = designs?.[0]?.id;
+          if (dId) {
+            const v = await api.getDesignVersions(dId);
+            versions = Array.isArray(v) ? v : [];
+          }
+        } catch { /* no snapshots yet */ }
+        const evolution = [...versions]
+          .reverse() // oldest → newest
+          .map((v) => ({ version: v.label, freq: v.freq, fidelity: v.fidelity }));
+        if (cancelled) return;
+        setLiveResults({
+          method: data.method,
+          jobId: data.last_job_id,
+          metrics: [
+            { label: "Frequency", value: m.frequency_GHz.toFixed(3), unit: "GHz", tone: "primary" as const, icon: <Radio className="h-[1.1rem] w-[1.1rem]" /> },
+            { label: "Q Factor", value: m.q_factor_k >= 1000 ? (m.q_factor_k / 1000).toFixed(2) : m.q_factor_k.toFixed(1), unit: m.q_factor_k >= 1000 ? "M" : "k", tone: "cyan" as const, icon: <Gauge className="h-[1.1rem] w-[1.1rem]" /> },
+            { label: "Coupling", value: m.coupling_MHz.toFixed(0), unit: "MHz", tone: "violet" as const, icon: <Link2 className="h-[1.1rem] w-[1.1rem]" /> },
+            { label: "Capacitance", value: m.capacitance_fF.toFixed(1), unit: "fF", tone: "success" as const, icon: <Activity className="h-[1.1rem] w-[1.1rem]" /> },
+            { label: "Inductance", value: m.inductance_nH.toFixed(1), unit: "nH", tone: "warning" as const, icon: <Zap className="h-[1.1rem] w-[1.1rem]" /> },
+            { label: "Anharmonicity", value: m.anharmonicity_MHz.toFixed(0), unit: "MHz", tone: "violet" as const, icon: <Activity className="h-[1.1rem] w-[1.1rem]" /> },
+          ],
+          evolution,
+          // Coupling vs flux for a tunable coupler: g(Φ) = g₀·cos²(πΦ) — a real
+          // deterministic curve from the design's computed coupling g₀.
+          couplingSweep: Array.from({ length: 21 }, (_, i) => {
+            const flux = -0.5 + i / 20;
+            return { flux, g: m.coupling_MHz * Math.cos(Math.PI * flux) ** 2 };
+          }),
+          coherence: data.coherence,
+        });
+      } catch (e) {
+        if (!cancelled) console.error(e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [selectedId]);
 
   const handleExportDesign = (fmt: string) => {
@@ -221,37 +231,45 @@ export default function Results() {
 
           {/* Graphs */}
           <div className="grid gap-6 lg:grid-cols-2">
-            <ChartCard title="Frequency vs version" subtitle="Design evolution" preview>
-              <ResponsiveContainer width="100%" height={250}>
-                <LineChart data={liveResults.evolution} margin={{ top: 10, right: 10, left: -12, bottom: 0 }}>
-                  <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="version" {...axisProps} />
-                  <YAxis {...axisProps} domain={["auto", "auto"]} unit=" GHz" />
-                  <RTooltip content={<ChartTooltip unit="GHz" />} cursor={{ stroke: CHART.grid }} />
-                  <Line type="monotone" name="Freq" dataKey="freq" stroke={CHART.primary} strokeWidth={2.5} dot={{ r: 3, fill: CHART.primary }} />
-                </LineChart>
-              </ResponsiveContainer>
+            <ChartCard title="Frequency by version" subtitle="Real design evolution — version snapshots">
+              {liveResults.evolution.length === 0 ? (
+                <NoSnapshots />
+              ) : (
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={liveResults.evolution} margin={{ top: 10, right: 10, left: -12, bottom: 0 }}>
+                    <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="version" {...axisProps} />
+                    <YAxis {...axisProps} domain={["auto", "auto"]} unit=" GHz" />
+                    <RTooltip content={<ChartTooltip unit="GHz" />} cursor={{ stroke: CHART.grid }} />
+                    <Line type="monotone" name="Freq" dataKey="freq" stroke={CHART.primary} strokeWidth={2.5} dot={{ r: 3, fill: CHART.primary }} connectNulls />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
             </ChartCard>
 
-            <ChartCard title="Optimization convergence" subtitle="Best score per iteration" preview>
-              <ResponsiveContainer width="100%" height={250}>
-                <AreaChart data={liveResults.optHistory} margin={{ top: 10, right: 10, left: -14, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="res-opt" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={CHART.cyan} stopOpacity={0.32} />
-                      <stop offset="100%" stopColor={CHART.cyan} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="iter" {...axisProps} />
-                  <YAxis {...axisProps} />
-                  <RTooltip content={<ChartTooltip />} cursor={{ stroke: CHART.grid }} />
-                  <Area type="monotone" name="Best" dataKey="best" stroke={CHART.cyan} strokeWidth={2.5} fill="url(#res-opt)" />
-                </AreaChart>
-              </ResponsiveContainer>
+            <ChartCard title="2Q fidelity by version" subtitle="Real design evolution — version snapshots">
+              {liveResults.evolution.length === 0 ? (
+                <NoSnapshots />
+              ) : (
+                <ResponsiveContainer width="100%" height={250}>
+                  <AreaChart data={liveResults.evolution} margin={{ top: 10, right: 10, left: -14, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="res-fid" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={CHART.cyan} stopOpacity={0.32} />
+                        <stop offset="100%" stopColor={CHART.cyan} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="version" {...axisProps} />
+                    <YAxis {...axisProps} domain={["auto", "auto"]} unit="%" />
+                    <RTooltip content={<ChartTooltip unit="%" />} cursor={{ stroke: CHART.grid }} />
+                    <Area type="monotone" name="2Q fidelity" dataKey="fidelity" stroke={CHART.cyan} strokeWidth={2.5} fill="url(#res-fid)" connectNulls />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </ChartCard>
 
-            <ChartCard title="Parameter sweep" subtitle="Coupling g vs flux Φ/Φ₀" preview>
+            <ChartCard title="Parameter sweep" subtitle="Tunable-coupler g vs flux Φ/Φ₀ (g₀·cos²πΦ)">
               <ResponsiveContainer width="100%" height={250}>
                 <LineChart data={liveResults.couplingSweep} margin={{ top: 10, right: 10, left: -12, bottom: 0 }}>
                   <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
@@ -319,6 +337,17 @@ export default function Results() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function NoSnapshots() {
+  return (
+    <div className="flex h-[250px] flex-col items-center justify-center gap-1 text-center">
+      <p className="text-sm text-fg-subtle">No version snapshots yet.</p>
+      <p className="max-w-xs text-2xs text-fg-subtle">
+        Capture snapshots in <span className="text-fg-muted">Experiments</span> to track this design's frequency and fidelity over time.
+      </p>
     </div>
   );
 }

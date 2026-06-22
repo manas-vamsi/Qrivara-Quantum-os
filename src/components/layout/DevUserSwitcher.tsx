@@ -37,7 +37,7 @@ export function DevUserSwitcher() {
         className="ml-1 flex items-center gap-1.5 rounded-full pl-0.5 pr-1.5 transition-colors hover:bg-surface-2"
         aria-label="Switch user"
       >
-        <Avatar name={name} size={34} />
+        <Avatar name={name} src={me?.avatar_url} size={34} />
         <ChevronDown className="h-3.5 w-3.5 text-fg-subtle" />
       </button>
 

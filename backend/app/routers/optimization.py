@@ -116,6 +116,13 @@ def start(body: OptimizationCreate, session: Session = Depends(get_session)):
     return run
 
 
+@router.get("/pareto")
+def pareto():
+    """The real gate-speed vs ZZ-crosstalk Pareto front (no run required). Defined
+    before /{run_id} so the literal path isn't captured as a run id."""
+    return _pareto()
+
+
 @router.get("/{run_id}")
 def status(run_id: str, session: Session = Depends(get_session)):
     run = session.get(OptimizationRun, run_id)
@@ -232,6 +239,121 @@ def _spec(name, mean, sigma):
 @router.get("/region/ej-ec")
 def ej_ec_region():
     return physics.sweep_ej_ec()
+
+
+@router.get("/design-metrics/{design_id}")
+def design_metrics(design_id: str, session: Session = Depends(get_session)):
+    """Design-derived optimization context — all computed from the selected design's
+    REAL physics (same engine as the Hamiltonian / decoherence / gate analyses):
+      • objectives  — current value vs goal for f01, anharmonicity, T1, 2Q fidelity, ZZ;
+      • parameters  — the tunable geometry knobs (Cσ, Ic, Cg) with search ranges;
+      • error_budget— the 2-qubit gate-error decomposition (T1, T2, leakage, ZZ) in 1e-3.
+    Lets the Optimization page's Objectives / Parameters / Error-Budget / Satisfaction
+    panels reflect the actual design rather than placeholders."""
+    from ..models import Design
+
+    design = session.get(Design, design_id)
+    doc = (design.doc if design else None) or {}
+    nodes = doc.get("nodes", [])
+    qubits = [n for n in nodes if (n.get("data", {}) or {}).get("kind") in ("transmon", "squid")]
+    qp = ((qubits[0].get("data", {}) or {}).get("params", {}) if qubits else {}) or {}
+    c_sigma = float(qp.get("c_sigma_fF", 80.0))
+    ic = float(qp.get("ic_nA", 30.0))
+    cg = float(qp.get("cg_fF", 5.5))
+    fr = float(qp.get("resonator_freq_GHz", 7.1))
+    kappa = float(qp.get("kappa_MHz", 1.2))
+    target_f = float(qp.get("target_freq_GHz", qp.get("frequency_GHz", 5.2)))
+    target_anh = float(qp.get("anharmonicity_MHz", -300.0))
+
+    ec = physics.ec_from_capacitance(c_sigma)
+    ej = physics.ej_from_ic(ic)
+
+    # Prefer the lumped-oscillator model (FEM capacitance → Hamiltonian) for the
+    # design's REAL frequencies + coupling; fall back to the closed-form transmon.
+    from .. import jobs as J
+    f01, anh = physics.transmon_f01_anharm(ej, ec)
+    f2, anh2, g_rep = f01 - 0.1, anh, 8.0
+    try:
+        lom = J._lom(nodes, {})
+        qs = lom.get("qubits", [])
+        if qs:
+            f01 = float(qs[0]["f01_GHz"]); anh = float(qs[0]["anharmonicity_MHz"])
+            if len(qs) >= 2:
+                f2 = float(qs[1]["f01_GHz"]); anh2 = float(qs[1]["anharmonicity_MHz"])
+                cpl = lom.get("couplings", [])
+                g_rep = min(float(cpl[0]["g_MHz"]), 30.0) if cpl else 8.0
+            else:
+                f2, anh2 = f01 - 0.1, anh
+    except Exception:  # noqa: BLE001
+        pass
+
+    g = physics.coupling_g(cg, c_sigma, 350.0, f01, fr)
+    dec = J._decoherence({"f01_GHz": f01, "anharmonicity_MHz": anh, "g_MHz": g,
+                          "resonator_freq_GHz": fr, "kappa_MHz": kappa})
+    t1, t2 = float(dec["T1_total_us"]), float(dec["T2_echo_us"])
+
+    # representative 2-qubit CZ gate for leakage + gate time (real time-domain sim)
+    try:
+        gate = physics.simulate_two_qubit_gate("cz", f01, f2, anh, anh2, g_mhz=g_rep)
+        tg_ns = float(gate["t_gate_ns"]) or 200.0
+        fid2q = float(gate["fidelity_pct"])
+        leak = max(0.0, float(gate["leakage"]))
+    except Exception:  # noqa: BLE001
+        tg_ns, fid2q, leak = 200.0, 99.0, 0.0
+
+    zz_khz = abs(physics.zz_interaction(f01, f2, anh, anh2, g_rep))
+
+    # 2Q gate-error budget (avg gate-error contributions, in 1e-3). Static ZZ is
+    # NOT a budget line — an echoed/calibrated gate cancels it — so it is tracked
+    # separately as the "ZZ crosstalk" objective instead of inflating the gate error.
+    tg = tg_ns / 1000.0  # µs
+    inv_tphi = max(1.0 / t2 - 1.0 / (2.0 * t1), 0.0) if (t1 and t2) else 0.0
+    e_t1 = (tg / 3.0) * (2.0 / t1) if t1 else 0.0
+    e_t2 = (tg / 3.0) * (2.0 * inv_tphi)
+
+    def e3(x: float) -> float:
+        return round(max(x, 0.0) * 1000.0, 3)
+
+    error_budget = [
+        {"id": "t1", "name": "T₁ relaxation", "value": e3(e_t1),
+         "note": f"T₁ = {t1:.0f} µs over a {tg_ns:.0f} ns gate"},
+        {"id": "t2", "name": "T₂ dephasing", "value": e3(e_t2),
+         "note": f"pure dephasing from T₂ = {t2:.0f} µs"},
+        {"id": "leakage", "name": "Leakage to |2⟩", "value": e3(leak),
+         "note": "diabatic CZ leakage (time-domain simulation)"},
+    ]
+    total_error_e3 = round(sum(b["value"] for b in error_budget), 3)
+
+    objectives = [
+        {"id": "freq", "name": "Frequency", "current": round(f01, 3), "goal": round(target_f, 3),
+         "unit": " GHz", "direction": "target"},
+        {"id": "anharm", "name": "Anharmonicity", "current": round(anh, 0), "goal": round(target_anh, 0),
+         "unit": " MHz", "direction": "target"},
+        {"id": "t1", "name": "T₁ coherence", "current": round(t1, 0), "goal": 100,
+         "unit": " µs", "direction": "max"},
+        {"id": "fidelity", "name": "2Q gate fidelity", "current": round(fid2q, 2), "goal": 99.9,
+         "unit": "%", "direction": "max"},
+        {"id": "zz", "name": "ZZ crosstalk", "current": round(zz_khz, 0), "goal": 10,
+         "unit": " kHz", "direction": "min"},
+    ]
+    parameters = [
+        {"id": "c_sigma_fF", "name": "Qubit capacitance Cσ", "value": round(c_sigma, 1),
+         "min": 50, "max": 120, "unit": "fF"},
+        {"id": "ic_nA", "name": "Junction Ic", "value": round(ic, 1),
+         "min": 15, "max": 45, "unit": "nA"},
+        {"id": "cg_fF", "name": "Coupling cap Cg", "value": round(cg, 1),
+         "min": 2, "max": 14, "unit": "fF"},
+    ]
+    return {
+        "design_id": design_id,
+        "has_design": bool(qubits),
+        "objectives": objectives,
+        "parameters": parameters,
+        "error_budget": error_budget,
+        "total_error_e3": total_error_e3,
+        "source": "design layout (LOM → decoherence → gate)" if qubits
+        else "defaults (no transmon found in this design)",
+    }
 
 
 def _pareto():

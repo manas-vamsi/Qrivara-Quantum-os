@@ -14,6 +14,7 @@ export interface CollabUser {
   bio?: string;
   institution?: string;
   discoverable?: boolean;
+  avatar_url?: string;
 }
 
 interface AuthState {

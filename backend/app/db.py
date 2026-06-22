@@ -29,6 +29,7 @@ engine = create_engine(settings.database_url, **_engine_kwargs)
 # Lightweight dev migration; production should use Alembic.
 _ADDED_COLUMNS: list[tuple[str, str, str]] = [
     ("project", "visibility", "VARCHAR DEFAULT 'private'"),
+    ("user", "avatar_url", "VARCHAR DEFAULT ''"),
     ("user", "handle", "VARCHAR"),
     ("user", "headline", "VARCHAR DEFAULT ''"),
     ("user", "bio", "VARCHAR DEFAULT ''"),

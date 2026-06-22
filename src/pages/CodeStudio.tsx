@@ -23,6 +23,9 @@ import {
   Copy,
   RotateCcw,
   X,
+  FilePlus,
+  FolderPlus,
+  Pencil,
 } from "lucide-react";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Badge, StatusDot } from "@/components/ui/Badge";
@@ -323,22 +326,99 @@ if __name__ == "__main__":
     main()
 `;
 
-const FILE_CONTENT: Record<string, string> = {
-  "falcon17.py": FALCON,
-  "lattice.py": LATTICE,
-  "couplers.py": COUPLERS,
-  "readout.py": READOUT,
-  "eigenmode.py": EIGENMODE,
-  "sweep.py": SWEEP,
+// Default workspace — folder-pathed (VS Code-style). The whole workspace (files,
+// folders, open tabs) persists in localStorage, so the project survives reloads.
+const DEFAULT_FILES: Record<string, string> = {
+  "design/falcon17.py": FALCON,
+  "design/lattice.py": LATTICE,
+  "components/couplers.py": COUPLERS,
+  "components/readout.py": READOUT,
+  "analysis/eigenmode.py": EIGENMODE,
+  "analysis/sweep.py": SWEEP,
 };
+const DEFAULT_FOLDERS = ["design", "components", "analysis"];
 
-const TREE: { name: string; files: string[] }[] = [
-  { name: "design", files: ["falcon17.py", "lattice.py"] },
-  { name: "components", files: ["couplers.py", "readout.py"] },
-  { name: "analysis", files: ["eigenmode.py", "sweep.py"] },
-];
+const LS_FILES = "qrivara:codestudio:files";
+const LS_FOLDERS = "qrivara:codestudio:folders";
+const LS_TABS = "qrivara:codestudio:tabs";
 
-type LogKind = "prompt" | "info" | "ok" | "warn";
+const basename = (p: string) => p.split("/").pop() || p;
+const dirname = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
+
+type TreeNode = { name: string; path: string; isFile: boolean; children: TreeNode[] };
+
+/** Build a nested folder tree from file paths + explicit (possibly empty) folders. */
+function buildTree(filePaths: string[], folderPaths: string[]): TreeNode[] {
+  const root: TreeNode = { name: "", path: "", isFile: false, children: [] };
+  const ensureFolder = (path: string): TreeNode => {
+    const parts = path.split("/");
+    let cur = root;
+    parts.forEach((part, i) => {
+      const sub = parts.slice(0, i + 1).join("/");
+      let child = cur.children.find((c) => !c.isFile && c.name === part);
+      if (!child) {
+        child = { name: part, path: sub, isFile: false, children: [] };
+        cur.children.push(child);
+      }
+      cur = child;
+    });
+    return cur;
+  };
+  folderPaths.forEach((f) => f && ensureFolder(f));
+  filePaths.forEach((p) => {
+    const dir = dirname(p);
+    const parent = dir ? ensureFolder(dir) : root;
+    if (!parent.children.find((c) => c.isFile && c.path === p))
+      parent.children.push({ name: basename(p), path: p, isFile: true, children: [] });
+  });
+  const sortRec = (n: TreeNode) => {
+    n.children.sort((a, b) =>
+      a.isFile === b.isFile ? a.name.localeCompare(b.name) : a.isFile ? 1 : -1,
+    );
+    n.children.forEach(sortRec);
+  };
+  sortRec(root);
+  return root.children;
+}
+
+function loadFiles(): Record<string, string> {
+  let base: Record<string, string> = { ...DEFAULT_FILES };
+  try {
+    const saved = localStorage.getItem(LS_FILES);
+    if (saved) base = JSON.parse(saved);
+    const gen = sessionStorage.getItem("qrivara:generated");
+    if (gen) base["generated.py"] = gen;
+  } catch {
+    /* ignore */
+  }
+  return base;
+}
+function loadFolders(): string[] {
+  try {
+    const saved = localStorage.getItem(LS_FOLDERS);
+    if (saved) return JSON.parse(saved);
+  } catch {
+    /* ignore */
+  }
+  return [...DEFAULT_FOLDERS];
+}
+function loadTabs(): string[] {
+  const f = loadFiles();
+  try {
+    const saved = localStorage.getItem(LS_TABS);
+    if (saved) {
+      const t = JSON.parse(saved).filter((x: string) => x in f);
+      if (t.length) return t;
+    }
+  } catch {
+    /* ignore */
+  }
+  return ["generated.py"]
+    .filter((x) => x in f)
+    .concat(["design/falcon17.py", "components/couplers.py"].filter((x) => x in f));
+}
+
+type LogKind = "prompt" | "info" | "ok" | "warn" | "out";
 
 /** Lightweight client-side analysis of a script for the outline + metrics. */
 function analyze(src: string) {
@@ -356,26 +436,23 @@ export default function CodeStudio() {
   const navigate = useNavigate();
   const setGraph = useDesignStore((s) => s.setGraph);
 
-  // Per-file editable content. "Open in Code Studio" injects a generated.py file.
-  const [files, setFiles] = useState<Record<string, string>>(() => {
-    const base = { ...FILE_CONTENT };
-    try {
-      const gen = sessionStorage.getItem("qrivara:generated");
-      if (gen) base["generated.py"] = gen;
-    } catch {
-      /* ignore */
-    }
-    return base;
+  // Workspace — path-keyed files + explicit folders, persisted in localStorage.
+  const [files, setFiles] = useState<Record<string, string>>(loadFiles);
+  const [folders, setFolders] = useState<string[]>(loadFolders);
+  const [openTabs, setOpenTabs] = useState<string[]>(loadTabs);
+  const [active, setActive] = useState<string>(() => loadTabs()[0] ?? Object.keys(loadFiles())[0] ?? "");
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
+    const e: Record<string, boolean> = {};
+    loadFolders().forEach((f) => (e[f] = true));
+    return e;
   });
 
-  const hasGenerated = "generated.py" in files;
-  const [openTabs, setOpenTabs] = useState<string[]>(() =>
-    (hasGenerated ? ["generated.py"] : []).concat(["falcon17.py", "couplers.py", "readout.py"]),
-  );
-  const [active, setActive] = useState(hasGenerated ? "generated.py" : "falcon17.py");
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({
-    design: true, components: true, analysis: false,
-  });
+  // Persist the workspace so the project (files & folders) survives reloads.
+  useEffect(() => { try { localStorage.setItem(LS_FILES, JSON.stringify(files)); } catch { /* ignore */ } }, [files]);
+  useEffect(() => { try { localStorage.setItem(LS_FOLDERS, JSON.stringify(folders)); } catch { /* ignore */ } }, [folders]);
+  useEffect(() => { try { localStorage.setItem(LS_TABS, JSON.stringify(openTabs)); } catch { /* ignore */ } }, [openTabs]);
+
+  const tree = useMemo(() => buildTree(Object.keys(files), folders), [files, folders]);
   const [liveSync, setLiveSync] = useState(true);
   const [running, setRunning] = useState(false);
   const [consoleOpen, setConsoleOpen] = useState(true);
@@ -410,37 +487,104 @@ export default function CodeStudio() {
   };
 
   const closeTab = (f: string) => {
-    setOpenTabs((t) => {
-      const next = t.filter((x) => x !== f);
-      if (active === f) setActive(next[next.length - 1] ?? next[0] ?? "");
-      return next;
-    });
+    const next = openTabs.filter((x) => x !== f);
+    setOpenTabs(next);
+    if (active === f) setActive(next[next.length - 1] ?? "");
+  };
+
+  // ── File / folder operations (VS Code-style, persisted in the workspace) ────
+  const newFile = (dir = "") => {
+    const input = window.prompt("New file path:", dir ? `${dir}/untitled.py` : "untitled.py");
+    if (!input) return;
+    let path = input.trim().replace(/^\/+|\/+$/g, "");
+    if (!path) return;
+    if (!/\.[A-Za-z0-9]+$/.test(path)) path += ".py";
+    if (path in files) { openFile(path); return; }
+    setFiles((f) => ({ ...f, [path]: `# ${path}\n` }));
+    setOpenTabs((t) => (t.includes(path) ? t : [...t, path]));
+    setActive(path);
+    const d = dirname(path);
+    if (d) setExpanded((e) => ({ ...e, [d]: true }));
+  };
+
+  const newFolder = (parent = "") => {
+    const input = window.prompt("New folder path:", parent ? `${parent}/new-folder` : "new-folder");
+    if (!input) return;
+    const path = input.trim().replace(/^\/+|\/+$/g, "");
+    if (!path) return;
+    setFolders((fs) => (fs.includes(path) ? fs : [...fs, path]));
+    setExpanded((e) => ({ ...e, [path]: true }));
+  };
+
+  const renameItem = (path: string, isFile: boolean) => {
+    const input = window.prompt(`Rename ${isFile ? "file" : "folder"}:`, path);
+    if (!input) return;
+    const np = input.trim().replace(/^\/+|\/+$/g, "");
+    if (!np || np === path) return;
+    if (isFile) {
+      setFiles((f) => { const c = { ...f }; const v = c[path]; delete c[path]; c[np] = v; return c; });
+      setOpenTabs((t) => t.map((x) => (x === path ? np : x)));
+      if (active === path) setActive(np);
+    } else {
+      const re = (x: string) => (x === path ? np : x.startsWith(path + "/") ? np + x.slice(path.length) : x);
+      setFiles((f) => { const c: Record<string, string> = {}; for (const k in f) c[re(k)] = f[k]; return c; });
+      setFolders((fs) => fs.map(re));
+      setOpenTabs((t) => t.map(re));
+      setActive((a) => re(a));
+    }
+  };
+
+  const deleteItem = (path: string, isFile: boolean) => {
+    if (!window.confirm(`Delete ${isFile ? "file" : "folder"} "${path}"${isFile ? "" : " and everything inside it"}?`)) return;
+    if (isFile) {
+      setFiles((f) => { const c = { ...f }; delete c[path]; return c; });
+      const next = openTabs.filter((x) => x !== path);
+      setOpenTabs(next);
+      if (active === path) setActive(next[next.length - 1] ?? "");
+    } else {
+      const under = (x: string) => x === path || x.startsWith(path + "/");
+      setFiles((f) => { const c = { ...f }; for (const k in c) if (under(k)) delete c[k]; return c; });
+      setFolders((fs) => fs.filter((x) => !under(x)));
+      const next = openTabs.filter((x) => !under(x));
+      setOpenTabs(next);
+      if (under(active)) setActive(next[next.length - 1] ?? "");
+    }
   };
 
   const run = async () => {
+    if (!active) return;
     setRunning(true);
-    setLog((l) => [...l, { k: "prompt", t: `$ python ${active}` }]);
+    const add: { k: LogKind; t: string }[] = [{ k: "prompt", t: `$ python ${basename(active)}` }];
     try {
-      if (stats.isDesign) {
-        // round-trip: parse the design literals back onto the Visual Designer canvas
-        const res = await api.executeCode(code);
-        if (res.logs) setLog((l) => [...l, ...res.logs]);
-        if (liveSync && res.doc?.nodes?.length) {
-          setGraph(res.doc.nodes, res.doc.edges);
-          setLog((l) => [...l, { k: "ok", t: "✓ Synced to the Visual Designer canvas" }]);
+      // 1) REAL execution — actual stdout/stderr from the server interpreter
+      const res = await api.runCode(code, basename(active));
+      const out = (res.stdout || "").replace(/\n+$/, "");
+      const err = (res.stderr || "").replace(/\n+$/, "");
+      if (out) out.split("\n").forEach((t: string) => add.push({ k: "out", t }));
+      if (err) err.split("\n").forEach((t: string) => add.push({ k: "warn", t }));
+      if (!out && !err) add.push({ k: "info", t: "(no output)" });
+      add.push({
+        k: res.exit_code === 0 ? "ok" : "warn",
+        t: `[exit ${res.exit_code} · ${res.duration_ms} ms${res.timed_out ? " · timed out" : ""}]`,
+      });
+      // 2) design scripts also round-trip onto the Visual Designer canvas
+      if (stats.isDesign && liveSync) {
+        try {
+          const ex = await api.executeCode(code);
+          if (ex?.doc?.nodes?.length) {
+            setGraph(ex.doc.nodes, ex.doc.edges);
+            add.push({ k: "ok", t: `✓ Synced ${ex.metrics?.qubits ?? ex.doc.nodes.length} component(s) to the Visual Designer canvas` });
+          }
+        } catch {
+          /* canvas sync is best-effort */
         }
-      } else {
-        // self-contained physics script — there is no server-side Python sandbox,
-        // so guide the user to run it locally (honest: the file is fully runnable).
-        setLog((l) => [
-          ...l,
-          { k: "info", t: `[scan] ${stats.functions} function(s) · ${stats.lines} lines · NumPy-only` },
-          { k: "ok", t: `✓ ${active} is self-contained — Download it and run \`python ${active}\` for full output.` },
-        ]);
       }
     } catch (err: any) {
-      setLog((l) => [...l, { k: "warn", t: `Execution failed: ${err?.message ?? "unknown error"}` }]);
+      // in-app execution disabled/unavailable → honest, runnable-locally fallback
+      add.push({ k: "warn", t: `Run failed: ${err?.message ?? "unknown error"}` });
+      add.push({ k: "info", t: `${basename(active)} is self-contained — Download it and run \`python ${basename(active)}\` locally.` });
     } finally {
+      setLog((l) => [...l, ...add]);
       setRunning(false);
     }
   };
@@ -450,7 +594,7 @@ export default function CodeStudio() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = active || "design.py";
+    a.download = basename(active) || "script.py";
     a.click();
     URL.revokeObjectURL(url);
     setMenuOpen(false);
@@ -459,7 +603,7 @@ export default function CodeStudio() {
   const copyCode = async () => {
     try {
       await navigator.clipboard.writeText(code);
-      setLog((l) => [...l, { k: "ok", t: `Copied ${active} to clipboard` }]);
+      setLog((l) => [...l, { k: "ok", t: `Copied ${basename(active)} to clipboard` }]);
     } catch {
       setLog((l) => [...l, { k: "warn", t: "Clipboard unavailable in this browser" }]);
     }
@@ -467,9 +611,9 @@ export default function CodeStudio() {
   };
 
   const resetFile = () => {
-    if (active in FILE_CONTENT) {
-      setFiles((f) => ({ ...f, [active]: FILE_CONTENT[active] }));
-      setLog((l) => [...l, { k: "info", t: `Reset ${active} to the sample` }]);
+    if (active in DEFAULT_FILES) {
+      setFiles((f) => ({ ...f, [active]: DEFAULT_FILES[active] }));
+      setLog((l) => [...l, { k: "info", t: `Reset ${basename(active)} to the sample` }]);
     }
     setMenuOpen(false);
   };
@@ -479,7 +623,56 @@ export default function CodeStudio() {
     info: "text-fg-muted",
     ok: "text-success",
     warn: "text-warning",
+    out: "text-fg",
   };
+
+  // Recursive file-tree renderer (folders + files, hover actions like VS Code).
+  const renderNodes = (nodes: TreeNode[], depth: number): React.ReactNode =>
+    nodes.map((node) => {
+      const pad = { paddingLeft: `${0.4 + depth * 0.8}rem` };
+      if (node.isFile) {
+        return (
+          <div key={node.path} className="group/row flex items-center">
+            <button
+              onClick={() => openFile(node.path)}
+              style={pad}
+              className={cn(
+                "flex min-w-0 flex-1 items-center gap-1.5 rounded-lg py-1.5 pr-1 text-xs transition-colors",
+                active === node.path ? "bg-primary/12 text-primary" : "text-fg-subtle hover:bg-surface-2 hover:text-fg",
+              )}
+            >
+              <FileCode className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{node.name}</span>
+            </button>
+            <RowActions onRename={() => renameItem(node.path, true)} onDelete={() => deleteItem(node.path, true)} />
+          </div>
+        );
+      }
+      const open = expanded[node.path] ?? true;
+      return (
+        <div key={node.path}>
+          <div className="group/row flex items-center">
+            <button
+              onClick={() => setExpanded((e) => ({ ...e, [node.path]: !(e[node.path] ?? true) }))}
+              style={pad}
+              className="flex min-w-0 flex-1 items-center gap-1 rounded-lg py-1.5 pr-1 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-2"
+              aria-expanded={open}
+            >
+              {open ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronRight className="h-3 w-3 shrink-0" />}
+              {open ? <FolderOpen className="h-3.5 w-3.5 shrink-0 text-warning" /> : <Folder className="h-3.5 w-3.5 shrink-0 text-fg-subtle" />}
+              <span className="truncate">{node.name}</span>
+            </button>
+            <RowActions
+              onNewFile={() => newFile(node.path)}
+              onNewFolder={() => newFolder(node.path)}
+              onRename={() => renameItem(node.path, false)}
+              onDelete={() => deleteItem(node.path, false)}
+            />
+          </div>
+          {open && renderNodes(node.children, depth + 1)}
+        </div>
+      );
+    });
 
   // Outline + metrics derived from the active file (no hardcoded numbers).
   const outline: { icon: any; name: string; tone: string }[] = [];
@@ -511,9 +704,9 @@ export default function CodeStudio() {
               active === f ? "bg-surface-3 text-fg" : "text-fg-subtle hover:bg-surface-2 hover:text-fg",
             )}
           >
-            <button onClick={() => setActive(f)} className="flex items-center gap-2">
+            <button onClick={() => setActive(f)} className="flex items-center gap-2" title={f}>
               <FileCode className="h-3.5 w-3.5 text-cyan" />
-              {f}
+              {basename(f)}
             </button>
             {openTabs.length > 1 && (
               <button
@@ -551,7 +744,7 @@ export default function CodeStudio() {
               <div className="absolute right-0 top-[calc(100%+0.4rem)] z-50 w-44 rounded-xl border border-line bg-surface p-1 shadow-pop">
                 <MenuItem icon={<Download className="h-3.5 w-3.5" />} label="Download .py" onClick={download} />
                 <MenuItem icon={<Copy className="h-3.5 w-3.5" />} label="Copy code" onClick={copyCode} />
-                <MenuItem icon={<RotateCcw className="h-3.5 w-3.5" />} label="Reset to sample" onClick={resetFile} disabled={!(active in FILE_CONTENT)} />
+                <MenuItem icon={<RotateCcw className="h-3.5 w-3.5" />} label="Reset to sample" onClick={resetFile} disabled={!(active in DEFAULT_FILES)} />
               </div>
             )}
           </div>
@@ -560,45 +753,28 @@ export default function CodeStudio() {
 
       {/* Middle */}
       <div className="flex min-h-0 flex-1">
-        {/* File tree */}
-        <aside className="hidden w-56 shrink-0 flex-col border-r border-line bg-surface/40 py-2 md:flex">
-          <p className="px-4 pb-1 pt-1 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-            Explorer
-          </p>
-          {TREE.map((folder) => {
-            const open = expanded[folder.name];
-            return (
-              <div key={folder.name} className="px-2">
-                <button
-                  onClick={() => setExpanded((e) => ({ ...e, [folder.name]: !e[folder.name] }))}
-                  className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-2"
-                  aria-expanded={open}
-                >
-                  {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                  {open ? (
-                    <FolderOpen className="h-3.5 w-3.5 text-warning" />
-                  ) : (
-                    <Folder className="h-3.5 w-3.5 text-fg-subtle" />
-                  )}
-                  {folder.name}
-                </button>
-                {open &&
-                  folder.files.map((file) => (
-                    <button
-                      key={file}
-                      onClick={() => openFile(file)}
-                      className={cn(
-                        "flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 pl-8 text-xs transition-colors",
-                        active === file ? "bg-primary/12 text-primary" : "text-fg-subtle hover:bg-surface-2 hover:text-fg",
-                      )}
-                    >
-                      <FileCode className="h-3.5 w-3.5" />
-                      {file}
-                    </button>
-                  ))}
-              </div>
-            );
-          })}
+        {/* File tree (VS Code-style: create/rename/delete folders & files) */}
+        <aside className="hidden w-60 shrink-0 flex-col border-r border-line bg-surface/40 py-2 md:flex">
+          <div className="flex items-center justify-between px-3 pb-1 pt-1">
+            <p className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">Explorer</p>
+            <div className="flex items-center gap-0.5">
+              <IconButton size="sm" title="New file" aria-label="New file" onClick={() => newFile("")}>
+                <FilePlus className="h-3.5 w-3.5" />
+              </IconButton>
+              <IconButton size="sm" title="New folder" aria-label="New folder" onClick={() => newFolder("")}>
+                <FolderPlus className="h-3.5 w-3.5" />
+              </IconButton>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto px-1">
+            {tree.length === 0 ? (
+              <p className="px-3 py-4 text-2xs text-fg-subtle">
+                Empty workspace. Use the + buttons above to create a file or folder.
+              </p>
+            ) : (
+              renderNodes(tree, 0)
+            )}
+          </div>
         </aside>
 
         {/* Editor */}
@@ -751,6 +927,36 @@ function MenuItem({ icon, label, onClick, disabled }: { icon: React.ReactNode; l
     >
       {icon}
       {label}
+    </button>
+  );
+}
+
+function RowActions({ onNewFile, onNewFolder, onRename, onDelete }: {
+  onNewFile?: () => void;
+  onNewFolder?: () => void;
+  onRename?: () => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-0.5 pr-1.5 opacity-0 transition-opacity group-hover/row:opacity-100">
+      {onNewFile && <ActBtn title="New file" onClick={onNewFile}><FilePlus className="h-3 w-3" /></ActBtn>}
+      {onNewFolder && <ActBtn title="New folder" onClick={onNewFolder}><FolderPlus className="h-3 w-3" /></ActBtn>}
+      {onRename && <ActBtn title="Rename" onClick={onRename}><Pencil className="h-3 w-3" /></ActBtn>}
+      {onDelete && <ActBtn title="Delete" onClick={onDelete}><Trash2 className="h-3 w-3" /></ActBtn>}
+    </div>
+  );
+}
+
+function ActBtn({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="rounded p-1 text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg"
+    >
+      {children}
     </button>
   );
 }

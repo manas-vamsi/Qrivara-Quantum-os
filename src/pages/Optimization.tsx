@@ -29,19 +29,32 @@ import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusDot } from "@/components/ui/Badge";
 import { Progress } from "@/components/ui/Progress";
-import { Slider, SegmentedControl, Field, Select } from "@/components/ui/Form";
+import { Slider, Select } from "@/components/ui/Form";
 import { useDataStore } from "@/store/useDataStore";
 import { useAppStore } from "@/store/useAppStore";
 import { CHART, axisProps, ChartTooltip } from "@/lib/chartTheme";
-import { comingSoon, PreviewBadge, ComingSoonOverlay } from "@/components/common/ComingSoon";
-import { OPT_OBJECTIVES, OPT_PARAMS, PARETO, OPT_ERRORS } from "@/data/mockData";
+import { comingSoon } from "@/components/common/ComingSoon";
+import { EmptyState } from "@/components/common/EmptyState";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 
 const dirTone = { min: "cyan", max: "success", target: "primary" } as const;
 
+type Objective = {
+  id: string; name: string; current: number; goal: number;
+  unit: string; direction: "min" | "max" | "target";
+};
+type DesignMetrics = {
+  has_design: boolean;
+  objectives: Objective[];
+  parameters: { id: string; name: string; value: number; min: number; max: number; unit: string }[];
+  error_budget: { id: string; name: string; value: number; note: string }[];
+  total_error_e3: number;
+  source: string;
+};
+
 /** Closeness of current value to goal, 0..100. */
-function closeness(o: (typeof OPT_OBJECTIVES)[number]) {
+function closeness(o: Objective) {
   if (o.direction === "min") {
     return Math.max(0, Math.min(100, (o.goal / Math.max(o.current, 0.0001)) * 100));
   }
@@ -61,14 +74,53 @@ export default function Optimization() {
   const [optHistory, setOptHistory] = useState<any[]>([]);
   const [optPareto, setOptPareto] = useState<any[]>([]);
   const [optBest, setOptBest] = useState<any>(null);
-  const [params, setParams] = useState(
-    Object.fromEntries(OPT_PARAMS.map((p) => [p.id, p.value])),
-  );
+  const [params, setParams] = useState<Record<string, number>>({ c_sigma_fF: 80, ic_nA: 30, cg_fF: 5.5 });
 
-  // EJ-EC optimal region — live backend
+  // Project / design context → real objectives, parameters, error budget.
+  const { projects, fetchProjects } = useDataStore();
+  const [projectId, setProjectId] = useState("");
+  const [designId, setDesignId] = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<DesignMetrics | null>(null);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+
+  useEffect(() => { if (!projects.length) fetchProjects(); }, [projects.length, fetchProjects]);
+  useEffect(() => { if (!projectId && projects.length) setProjectId(projects[0].id); }, [projects, projectId]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    setMetricsLoading(true);
+    (async () => {
+      try {
+        const designs = await api.getProjectDesigns(projectId);
+        const dId = designs?.[0]?.id ?? null;
+        if (cancelled) return;
+        setDesignId(dId);
+        if (!dId) throw new Error("no design");
+        const m: DesignMetrics = await api.getDesignMetrics(dId);
+        if (cancelled) return;
+        setMetrics(m);
+        const pv: Record<string, number> = {};
+        (m.parameters || []).forEach((p) => (pv[p.id] = p.value));
+        if (Object.keys(pv).length) setParams(pv);
+      } catch {
+        if (!cancelled) setMetrics(null);
+      } finally {
+        if (!cancelled) setMetricsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  const objectives: Objective[] = metrics?.objectives ?? [];
+  const designParams = metrics?.parameters ?? [];
+  const errorBudget = metrics?.error_budget ?? [];
+
+  // EJ-EC optimal region + real Pareto front — live backend
   const [sweep, setSweep] = useState<any[]>([]);
   useEffect(() => {
     api.getEjEcRegion().then(setSweep).catch(console.error);
+    api.getPareto().then(setOptPareto).catch(console.error);
   }, []);
 
   const optRegion = sweep
@@ -77,7 +129,6 @@ export default function Optimization() {
   const offRegion = sweep
     .filter((p) => p.score < 78)
     .map((p) => ({ ratio: p.ratio, ec: Math.round(p.ec * 1000) }));
-  const totalErr = OPT_ERRORS.reduce((s, e) => s + e.value, 0);
 
   // Yield / Monte-Carlo process-variation analysis — live backend (10k samples).
   const [sigma, setSigma] = useState(2);
@@ -133,8 +184,41 @@ export default function Optimization() {
   // Inverse design — live backend
   const [targetF, setTargetF] = useState(5.2);
   const [targetAnh, setTargetAnh] = useState(-300);
-  const [method, setMethod] = useState<"bayesian" | "genetic" | "gradient">("bayesian");
+  const method = "nelder-mead"; // the optimizer is a derivative-free Nelder-Mead search
   const [invResult, setInvResult] = useState({ cSigma: 80, ic: 30, ej: 14.5, ec: 0.24, ratio: 60 });
+  const [applying, setApplying] = useState(false);
+
+  // Apply the inverse-design solution to the selected design's first transmon.
+  const applyToDesign = async () => {
+    if (!designId) { comingSoon("Apply to design (select a project first)"); return; }
+    setApplying(true);
+    try {
+      const d = await api.getDesign(designId);
+      const doc = d.doc || { nodes: [], edges: [] };
+      const nodes = [...(doc.nodes || [])];
+      const qi = nodes.findIndex((n: any) => ["transmon", "squid"].includes(n?.data?.kind));
+      if (qi < 0) throw new Error("no transmon in this design");
+      nodes[qi] = {
+        ...nodes[qi],
+        data: {
+          ...nodes[qi].data,
+          params: {
+            ...(nodes[qi].data?.params || {}),
+            c_sigma_fF: Number(invResult.cSigma.toFixed(1)),
+            ic_nA: Number(invResult.ic.toFixed(1)),
+          },
+        },
+      };
+      await api.saveDesign(designId, d.version, { ...doc, nodes });
+      const m: DesignMetrics = await api.getDesignMetrics(designId);
+      setMetrics(m);
+    } catch (e) {
+      console.error(e);
+      comingSoon("Apply to design — could not update the design");
+    } finally {
+      setApplying(false);
+    }
+  };
 
   useEffect(() => {
     api.runInverseDesign(targetF, targetAnh)
@@ -142,14 +226,13 @@ export default function Optimization() {
       .catch(console.error);
   }, [targetF, targetAnh]);
 
-  const radarData = OPT_OBJECTIVES.map((o) => ({
+  const radarData = objectives.map((o) => ({
     objective: o.name.split(" ")[0],
     value: Math.round(closeness(o)),
   }));
 
-  // Pareto front comes live from the backend once a run completes; fall back to
-  // the static sample only before the first run.
-  const paretoPts = optPareto.length ? optPareto : PARETO;
+  // Pareto front is live from the backend (fetched on mount; refreshed per run).
+  const paretoPts = optPareto;
   const optimal = paretoPts.filter((p: any) => !p.dominated);
   const dominated = paretoPts.filter((p: any) => p.dominated);
 
@@ -161,6 +244,7 @@ export default function Optimization() {
         const res = await api.startOptimization({
           ...params,
           method,
+          design_id: designId ?? undefined,
           target_freq_GHz: targetF,
           target_anharm_MHz: targetAnh,
         });
@@ -241,7 +325,7 @@ export default function Optimization() {
       </Card>
 
       {/* AI design advisor — reviews the selected project's reports */}
-      <AIAdvisor />
+      <AIAdvisor projectId={projectId} setProjectId={setProjectId} projects={projects} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Left */}
@@ -297,72 +381,70 @@ export default function Optimization() {
         {/* Right */}
         <div className="space-y-6">
           <Card>
-            <Header title="Objectives" subtitle="Goal satisfaction" preview />
-            <ComingSoonOverlay label="Objective tracking">
+            <Header title="Objectives" subtitle={metrics ? "Current vs goal — from the selected design" : "Goal satisfaction"} />
             <CardContent className="space-y-4 pt-4">
-              {OPT_OBJECTIVES.map((o) => {
-                const c = closeness(o);
-                return (
-                  <div key={o.id}>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <Target className="h-3.5 w-3.5 text-fg-subtle" />
-                        <span className="text-sm font-medium text-fg">{o.name}</span>
+              {objectives.length === 0 ? (
+                <p className="py-6 text-center text-sm text-fg-subtle">
+                  {metricsLoading ? "Computing objectives…" : "Select a project to compute its objectives."}
+                </p>
+              ) : (
+                objectives.map((o) => {
+                  const c = closeness(o);
+                  return (
+                    <div key={o.id}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Target className="h-3.5 w-3.5 text-fg-subtle" />
+                          <span className="text-sm font-medium text-fg">{o.name}</span>
+                        </div>
+                        <Badge tone={dirTone[o.direction]}>{o.direction}</Badge>
                       </div>
-                      <Badge tone={dirTone[o.direction]}>{o.direction}</Badge>
+                      <div className="mt-1.5 flex items-center justify-between font-mono text-2xs text-fg-subtle">
+                        <span>cur <span className="text-fg">{o.current}{o.unit}</span></span>
+                        <span>goal <span className="text-fg">{o.goal}{o.unit}</span></span>
+                      </div>
+                      <div className="mt-2">
+                        <Progress value={c} size="sm" tone={c > 85 ? "success" : c > 60 ? "primary" : "warning"} />
+                      </div>
                     </div>
-                    <div className="mt-1.5 flex items-center justify-between font-mono text-2xs text-fg-subtle">
-                      <span>
-                        cur <span className="text-fg">{o.current}{o.unit}</span>
-                      </span>
-                      <span>
-                        goal <span className="text-fg">{o.goal}{o.unit}</span>
-                      </span>
-                    </div>
-                    <div className="mt-2">
-                      <Progress
-                        value={c}
-                        size="sm"
-                        tone={c > 85 ? "success" : c > 60 ? "primary" : "warning"}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </CardContent>
-            </ComingSoonOverlay>
           </Card>
 
           <Card>
-            <Header title="Design Parameters" subtitle="Search space" preview />
-            <ComingSoonOverlay label="Parameter search space">
+            <Header title="Design Parameters" subtitle="Search space — seeds the optimizer's starting point" />
             <CardContent className="space-y-5 pt-4">
-              {OPT_PARAMS.map((p) => (
-                <div key={p.id}>
-                  <div className="mb-1.5 flex items-center justify-between text-sm">
-                    <span className="font-medium text-fg">{p.name}</span>
-                    <span className="font-mono text-xs text-primary">
-                      {params[p.id]}
-                      <span className="text-fg-subtle"> {p.unit}</span>
-                    </span>
+              {designParams.length === 0 ? (
+                <p className="py-6 text-center text-sm text-fg-subtle">
+                  {metricsLoading ? "Reading design parameters…" : "Select a project to load its tunable parameters."}
+                </p>
+              ) : (
+                designParams.map((p) => (
+                  <div key={p.id}>
+                    <div className="mb-1.5 flex items-center justify-between text-sm">
+                      <span className="font-medium text-fg">{p.name}</span>
+                      <span className="font-mono text-xs text-primary">
+                        {params[p.id] ?? p.value}
+                        <span className="text-fg-subtle"> {p.unit}</span>
+                      </span>
+                    </div>
+                    <Slider
+                      value={params[p.id] ?? p.value}
+                      min={p.min}
+                      max={p.max}
+                      step={(p.max - p.min) / 100}
+                      onChange={(v) => setParams((s) => ({ ...s, [p.id]: Number(v.toFixed(3)) }))}
+                    />
+                    <div className="mt-1 flex justify-between font-mono text-2xs text-fg-subtle">
+                      <span>{p.min}</span>
+                      <span>{p.max}</span>
+                    </div>
                   </div>
-                  <Slider
-                    value={params[p.id]}
-                    min={p.min}
-                    max={p.max}
-                    step={(p.max - p.min) / 100}
-                    onChange={(v) =>
-                      setParams((s) => ({ ...s, [p.id]: Number(v.toFixed(3)) }))
-                    }
-                  />
-                  <div className="mt-1 flex justify-between font-mono text-2xs text-fg-subtle">
-                    <span>{p.min}</span>
-                    <span>{p.max}</span>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </CardContent>
-            </ComingSoonOverlay>
           </Card>
         </div>
       </div>
@@ -370,34 +452,40 @@ export default function Optimization() {
       {/* Physics-based error budget + EJ–EC optimal region */}
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <Header title="Error Budget" subtitle="Physics-based objectives (IQM 2024)" preview />
-          <ComingSoonOverlay label="Error budget breakdown">
+          <Header title="Error Budget" subtitle="2-qubit gate-error decomposition (Abad 2022; Krantz 2019)" />
           <CardContent className="space-y-3.5 pt-4">
-            {OPT_ERRORS.map((e) => (
-              <div key={e.id}>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-fg">{e.name}</span>
-                  <span className="font-mono text-xs text-fg-muted">
-                    {e.value.toFixed(1)}
-                    <span className="text-fg-subtle"> ×10⁻³</span>
-                  </span>
+            {errorBudget.length === 0 ? (
+              <p className="py-6 text-center text-sm text-fg-subtle">
+                {metricsLoading ? "Computing the error budget…" : "Select a project to compute its gate-error budget."}
+              </p>
+            ) : (
+              <>
+                {errorBudget.map((e) => (
+                  <div key={e.id}>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-medium text-fg">{e.name}</span>
+                      <span className="font-mono text-xs text-fg-muted">
+                        {e.value.toFixed(2)}
+                        <span className="text-fg-subtle"> ×10⁻³</span>
+                      </span>
+                    </div>
+                    <div className="mt-1.5">
+                      <Progress
+                        value={Math.min(100, (e.value / 3) * 100)}
+                        size="sm"
+                        tone={e.value > 2 ? "warning" : e.value > 1.2 ? "primary" : "success"}
+                      />
+                    </div>
+                    <p className="mt-1 text-2xs text-fg-subtle">{e.note}</p>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between border-t border-line pt-3 text-sm">
+                  <span className="font-medium text-fg">Total gate error</span>
+                  <span className="font-mono text-primary">{(metrics?.total_error_e3 ?? 0).toFixed(2)} ×10⁻³</span>
                 </div>
-                <div className="mt-1.5">
-                  <Progress
-                    value={(e.value / 3) * 100}
-                    size="sm"
-                    tone={e.value > 2 ? "warning" : e.value > 1.2 ? "primary" : "success"}
-                  />
-                </div>
-                <p className="mt-1 text-2xs text-fg-subtle">{e.note}</p>
-              </div>
-            ))}
-            <div className="flex items-center justify-between border-t border-line pt-3 text-sm">
-              <span className="font-medium text-fg">Total gate error</span>
-              <span className="font-mono text-primary">{totalErr.toFixed(1)} ×10⁻³</span>
-            </div>
+              </>
+            )}
           </CardContent>
-          </ComingSoonOverlay>
         </Card>
 
         <Card>
@@ -504,16 +592,7 @@ export default function Optimization() {
               </h3>
               <p className="text-sm text-fg-subtle">Target spec → device parameters</p>
             </div>
-            <SegmentedControl
-              size="sm"
-              value={method}
-              onChange={setMethod}
-              options={[
-                { value: "bayesian", label: "Bayesian" },
-                { value: "genetic", label: "GA" },
-                { value: "gradient", label: "Grad" },
-              ]}
-            />
+            <Badge tone="primary">exact</Badge>
           </div>
           <CardContent className="space-y-4 pt-4">
             <div>
@@ -540,9 +619,9 @@ export default function Optimization() {
             </div>
             <div className="flex items-center justify-between rounded-xl border border-line bg-surface-2 px-3 py-2.5">
               <span className="text-2xs text-fg-subtle">
-                {method === "bayesian" ? "Gaussian-process surrogate" : method === "genetic" ? "Genetic algorithm" : "Gradient descent"} · converged in {method === "bayesian" ? 42 : method === "genetic" ? 180 : 96} evals
+                Exact closed-form inversion of the transmon relations — instant, no search.
               </span>
-              <Button size="sm" variant="subtle" onClick={() => comingSoon("Apply to design")}>Apply to design</Button>
+              <Button size="sm" variant="subtle" loading={applying} onClick={applyToDesign}>Apply to design</Button>
             </div>
           </CardContent>
         </Card>
@@ -550,34 +629,34 @@ export default function Optimization() {
 
       {/* Radar */}
       <Card>
-        <Header title="Objective Satisfaction" subtitle="Multi-objective overview" preview />
-        <ComingSoonOverlay label="Objective satisfaction radar">
+        <Header title="Objective Satisfaction" subtitle="How well the current design meets each goal (0–100%)" />
         <CardContent className="pt-4">
-          <ResponsiveContainer width="100%" height={300}>
-            <RadarChart data={radarData} outerRadius="72%">
-              <PolarGrid stroke={CHART.grid} />
-              <PolarAngleAxis dataKey="objective" tick={{ fill: CHART.axis, fontSize: 12 }} />
-              <PolarRadiusAxis domain={[0, 100]} tick={{ fill: CHART.axis, fontSize: 10 }} axisLine={false} />
-              <RTooltip content={<ChartTooltip unit="%" />} />
-              <Radar name="Satisfaction" dataKey="value" stroke={CHART.primary} strokeWidth={2} fill={CHART.primary} fillOpacity={0.22} />
-            </RadarChart>
-          </ResponsiveContainer>
+          {radarData.length === 0 ? (
+            <p className="py-12 text-center text-sm text-fg-subtle">
+              {metricsLoading ? "Computing objective satisfaction…" : "Select a project to see its objective-satisfaction profile."}
+            </p>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <RadarChart data={radarData} outerRadius="72%">
+                <PolarGrid stroke={CHART.grid} />
+                <PolarAngleAxis dataKey="objective" tick={{ fill: CHART.axis, fontSize: 12 }} />
+                <PolarRadiusAxis domain={[0, 100]} tick={{ fill: CHART.axis, fontSize: 10 }} axisLine={false} />
+                <RTooltip content={<ChartTooltip unit="%" />} />
+                <Radar name="Satisfaction" dataKey="value" stroke={CHART.primary} strokeWidth={2} fill={CHART.primary} fillOpacity={0.22} />
+              </RadarChart>
+            </ResponsiveContainer>
+          )}
         </CardContent>
-        </ComingSoonOverlay>
       </Card>
     </div>
   );
 }
 
-function Header({ title, subtitle, preview }: { title: string; subtitle?: string; preview?: boolean }) {
+function Header({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div className="flex items-center gap-2 px-5 pt-5">
-      <Activity className="hidden h-0 w-0" />
       <div>
-        <h3 className="flex items-center gap-2 font-display text-[0.95rem] font-semibold tracking-tight">
-          {title}
-          {preview && <PreviewBadge />}
-        </h3>
+        <h3 className="font-display text-[0.95rem] font-semibold tracking-tight">{title}</h3>
         {subtitle && <p className="text-sm text-fg-subtle">{subtitle}</p>}
       </div>
     </div>
@@ -607,23 +686,19 @@ const PRIORITY_TONE: Record<string, string> = {
   low: "text-fg-muted border-line bg-surface-2",
 };
 
-function AIAdvisor() {
-  const projects = useDataStore((s) => s.projects);
-  const fetchProjects = useDataStore((s) => s.fetchProjects);
-  const [projectId, setProjectId] = useState("");
+function AIAdvisor({ projectId, setProjectId, projects }: {
+  projectId: string;
+  setProjectId: (id: string) => void;
+  projects: any[];
+}) {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<any>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!projects.length) fetchProjects();
     api.getAiStatus().then((s) => setConfigured(s.configured)).catch(() => setConfigured(false));
-  }, [projects.length, fetchProjects]);
-
-  useEffect(() => {
-    if (!projectId && projects.length) setProjectId(projects[0].id);
-  }, [projects, projectId]);
+  }, []);
 
   // keep the AI assistant aware of the project being reviewed
   const setActiveProject = useAppStore((s) => s.setActiveProject);
@@ -673,7 +748,7 @@ function AIAdvisor() {
           <Button
             icon={<Sparkles className="h-4 w-4" />}
             loading={loading}
-            disabled={!projectId || configured === false}
+            disabled={!projectId}
             onClick={analyze}
           >
             Analyze
@@ -683,8 +758,8 @@ function AIAdvisor() {
 
       <CardContent className="pt-4">
         {configured === false && (
-          <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
-            <AlertTriangle className="h-4 w-4" /> AI advisor is not configured on the server.
+          <div className="flex items-center gap-2 rounded-lg border border-cyan/30 bg-cyan/10 px-3 py-2 text-xs text-cyan">
+            <Lightbulb className="h-4 w-4" /> No LLM key configured — Analyze runs a built-in, physics-derived review. Add a GROQ/Gemini/OpenRouter key in the backend .env for a full natural-language analysis.
           </div>
         )}
         {error && (

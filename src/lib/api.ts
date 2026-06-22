@@ -104,6 +104,21 @@ export const api = {
     });
     return res.ok;
   },
+  // Toggle a project's bookmark (star). Returns { id, bookmarked }.
+  toggleBookmark: (projectId: string) => postJSON(`/projects/${projectId}/bookmark`),
+  // Patch project fields (folder, name, status, tags, …).
+  updateProject: async (projectId: string, body: Record<string, any>) => {
+    const res = await fetch(`${API_BASE}/projects/${projectId}`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new Error(e.detail || "Failed to update project");
+    }
+    return res.json();
+  },
   getProjectDesigns: async (projectId: string) => {
     const res = await fetch(`${API_BASE}/projects/${projectId}/designs`, {
       headers: authHeaders(),
@@ -127,6 +142,10 @@ export const api = {
     if (!res.ok) throw new Error("Conflict or error saving design");
     return res.json();
   },
+  // Design version history ("experiments") — real snapshots stored server-side.
+  getDesignVersions: (designId: string) => getJSON(`/designs/${designId}/versions`),
+  createSnapshot: (designId: string, label: string, message = "") =>
+    postJSON(`/designs/${designId}/snapshot`, { label, message }),
   getSimulationJob: async (jobId: string) => {
     const res = await fetch(`${API_BASE}/simulations/${jobId}`, {
       headers: authHeaders(),
@@ -215,6 +234,20 @@ export const api = {
     if (!res.ok) throw new Error("Code execution failed");
     return res.json();
   },
+  // Actually RUN a Python script server-side and get its real stdout/stderr.
+  // Returns { stdout, stderr, exit_code, duration_ms, timed_out }.
+  runCode: async (code: string, filename = "script.py") => {
+    const res = await fetch(`${API_BASE}/codegen/run`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ code, filename }),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new Error(e.detail || `Run failed (${res.status})`);
+    }
+    return res.json();
+  },
   startOptimization: async (params: any) => {
     const res = await fetch(`${API_BASE}/optimization/start`, {
       method: "POST",
@@ -247,6 +280,11 @@ export const api = {
     });
     return res.json();
   },
+  // Real gate-speed vs ZZ Pareto front (no run required).
+  getPareto: () => getJSON(`/optimization/pareto`),
+  // Design-derived optimization context: objectives vs goals, tunable parameters,
+  // and the physics error budget — all computed from the selected design.
+  getDesignMetrics: (designId: string) => getJSON(`/optimization/design-metrics/${designId}`),
   getExportFormats: async () => {
     const res = await fetch(`${API_BASE}/export/formats`, { headers: authHeaders() });
     return res.json();
@@ -341,6 +379,7 @@ export const api = {
     bio?: string;
     institution?: string;
     discoverable?: boolean;
+    avatar_url?: string;
   }) => {
     const res = await fetch(`${API_BASE}/auth/profile`, {
       method: "PATCH",

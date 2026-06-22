@@ -127,6 +127,7 @@ class ProfileUpdate(BaseModel):
     bio: Optional[str] = None
     institution: Optional[str] = None
     discoverable: Optional[bool] = None
+    avatar_url: Optional[str] = None
 
 
 # ----------------------------- Collaboration ------------------------------- #

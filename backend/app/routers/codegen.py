@@ -8,12 +8,20 @@ each qubit's exact transmon spectrum (charge-basis diagonalization) plus the
 dispersive readout shift for every qubit↔resonator pair. The physics mirrors
 ``app.physics`` so the script's numbers match what QRIVARA computes server-side.
 """
+import os
 import re
+import subprocess
+import sys
+import tempfile
+import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from ..config import settings
+from ..models import User
 from ..schemas import CodegenRequest
+from ..security import get_current_user
 
 router = APIRouter(prefix="/codegen", tags=["codegen"])
 
@@ -287,6 +295,75 @@ def execute(body: ExecuteRequest):
     ]
     return {"doc": {"nodes": nodes, "edges": edges}, "logs": logs,
             "metrics": {"qubits": n_q, "resonators": n_r}}
+
+
+class RunRequest(BaseModel):
+    code: str
+    filename: str = "script.py"
+
+
+@router.post("/run")
+def run_code(body: RunRequest, user: User = Depends(get_current_user)):
+    """Execute a Python script in-app and return its real stdout/stderr.
+
+    Runs the code in a fresh temp directory with the backend's own interpreter
+    (so `import numpy/scipy/qiskit/scqubits/qutip` work and produce genuine
+    output), bounded by a wall-clock timeout and an output cap. This is a code-
+    execution surface — gated by `settings.code_execution_enabled` and requires an
+    authenticated user. Disable it (or sandbox it) for shared/public deployments.
+    """
+    if not settings.code_execution_enabled:
+        raise HTTPException(
+            403,
+            "In-app code execution is disabled on this server. The script is "
+            "self-contained — download it and run `python <file>` locally.",
+        )
+    code = body.code or ""
+    if len(code) > 200_000:
+        raise HTTPException(413, "Script too large to run in-app (200 KB limit).")
+
+    fn = os.path.basename(body.filename or "script.py").strip() or "script.py"
+    if not fn.endswith(".py"):
+        fn += ".py"
+
+    timed_out = False
+    with tempfile.TemporaryDirectory(prefix="qrivara_run_") as td:
+        path = os.path.join(td, fn)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(code)
+        t0 = time.monotonic()
+        try:
+            proc = subprocess.run(
+                [sys.executable, path],
+                cwd=td,                       # run isolated from the repo
+                capture_output=True,
+                text=True,
+                timeout=settings.code_exec_timeout_s,
+            )
+            stdout, stderr, rc = proc.stdout, proc.stderr, proc.returncode
+        except subprocess.TimeoutExpired as e:
+            stdout = e.stdout or ""
+            stderr = (e.stderr or "") + (
+                f"\n[execution timed out after {settings.code_exec_timeout_s}s]"
+            )
+            rc, timed_out = -1, True
+        except Exception as e:  # noqa: BLE001 — surface launch failures cleanly
+            stdout, stderr, rc = "", f"[could not run: {e}]", -1
+        duration_ms = round((time.monotonic() - t0) * 1000)
+
+    cap = settings.code_exec_max_output
+
+    def clip(s: str) -> str:
+        s = s or ""
+        return s if len(s) <= cap else s[:cap] + f"\n… [output truncated at {cap} chars]"
+
+    return {
+        "stdout": clip(stdout),
+        "stderr": clip(stderr),
+        "exit_code": rc,
+        "duration_ms": duration_ms,
+        "timed_out": timed_out,
+    }
 
 
 @router.post("")

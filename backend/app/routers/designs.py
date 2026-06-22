@@ -65,9 +65,27 @@ def snapshot(
     session: Session = Depends(get_session),
 ):
     d = require_design_role(design_id, user, session, "editor")
+    # Capture the design's key metrics at snapshot time so the version timeline and
+    # evolution chart show real, comparable numbers (not just labels): the first
+    # qubit's frequency (from the lumped-oscillator model) and a coherence-limited
+    # 2-qubit gate fidelity. Best-effort — a metric failure never blocks the snapshot.
+    freq = fidelity = None
+    try:
+        from .. import jobs as J
+        nodes = (d.doc or {}).get("nodes", [])
+        lom = J._lom(nodes, {})
+        qs = lom.get("qubits", [])
+        if qs:
+            q0 = qs[0]
+            freq = round(float(q0["f01_GHz"]), 4)
+            gf = J._gate_fidelity({"f01_GHz": q0["f01_GHz"],
+                                   "anharmonicity_MHz": q0.get("anharmonicity_MHz", -300.0)})
+            fidelity = gf.get("fidelity_2q_pct")
+    except Exception:  # noqa: BLE001 — metrics are nice-to-have; the snapshot still records
+        pass
     v = DesignVersion(
         design_id=design_id, label=body.label, message=body.message,
-        author=user.name, doc=d.doc,
+        author=user.name, doc=d.doc, freq=freq, fidelity=fidelity,
     )
     session.add(v)
     session.commit()

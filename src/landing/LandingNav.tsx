@@ -50,6 +50,12 @@ export function LandingNav() {
               {l.label}
             </a>
           ))}
+          <Link
+            to="/documentation"
+            className="rounded-lg px-3 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary/10"
+          >
+            Documentation
+          </Link>
         </div>
 
         <div className="flex items-center gap-2">
@@ -87,6 +93,13 @@ export function LandingNav() {
               {l.label}
             </a>
           ))}
+          <Link
+            to="/documentation"
+            onClick={() => setOpen(false)}
+            className="block rounded-lg px-3 py-2.5 text-sm font-semibold text-primary hover:bg-primary/10"
+          >
+            Documentation
+          </Link>
         </div>
       )}
     </header>

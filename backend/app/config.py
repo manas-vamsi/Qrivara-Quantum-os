@@ -1,8 +1,17 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolve the backend/.env by ABSOLUTE path (this file is backend/app/config.py,
+# so parent.parent is backend/). pydantic-settings' default relative ".env" only
+# loads when the process CWD happens to be backend/ — launching uvicorn from
+# elsewhere (or via --app-dir) would silently skip the LLM keys / DATABASE_URL.
+# Real OS environment variables still override these.
+_ENV_FILE = str(Path(__file__).resolve().parent.parent / ".env")
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     app_name: str = "QRIVARA API"
     version: str = "0.1.0"
@@ -61,6 +70,15 @@ class Settings(BaseSettings):
     # When true AND the optional `headroom-ai` package is installed, the AI layer
     # compresses outbound messages (fewer provider tokens). Safe no-op otherwise.
     headroom_enabled: bool = True
+    # Code Studio in-app execution. Runs the user's Python in a subprocess (the
+    # backend's own interpreter, so scripts can import numpy/scipy/qiskit/scqubits/
+    # qutip and produce REAL output) bounded by a timeout + output cap. This IS a
+    # code-execution surface (effectively RCE), appropriate for a local/trusted
+    # single-user dev box — like an IDE's Run button. SET FALSE for any shared or
+    # public deployment (or move it to an isolated sandbox/container worker).
+    code_execution_enabled: bool = True
+    code_exec_timeout_s: int = 20            # hard wall-clock limit per run
+    code_exec_max_output: int = 40000        # chars of combined stdout/stderr returned
 
 
 settings = Settings()

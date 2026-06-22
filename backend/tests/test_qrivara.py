@@ -561,6 +561,54 @@ def test_qiskit_descriptor_rebuilds_target():
     assert abs(target.qubit_properties[0].frequency - 5.0e9) < 1e6
 
 
+def test_code_execution_run():
+    """Code Studio's in-app Run executes Python and returns REAL stdout/stderr +
+    exit code (the core 'I need the output' feature). Skips if execution is disabled."""
+    from app.config import settings
+    from app.routers.codegen import RunRequest, run_code
+    if not settings.code_execution_enabled:
+        pytest.skip("in-app code execution disabled (settings.code_execution_enabled)")
+    # happy path — real stdout
+    ok = run_code(RunRequest(code="print('hello'); print(6*7)", filename="t.py"), user=None)
+    assert ok["exit_code"] == 0
+    assert "hello" in ok["stdout"] and "42" in ok["stdout"]
+    assert ok["timed_out"] is False
+    # error path — traceback surfaces on stderr with a non-zero exit
+    bad = run_code(RunRequest(code="raise ValueError('boom')", filename="t.py"), user=None)
+    assert bad["exit_code"] != 0 and "boom" in bad["stderr"]
+    # scientific stack is importable so design scripts produce genuine numbers
+    sci = run_code(RunRequest(code="import numpy as np; print(round(float(np.sqrt(2)),3))", filename="t.py"), user=None)
+    assert sci["exit_code"] == 0 and "1.414" in sci["stdout"]
+
+
+def test_optimization_pareto_and_advisor():
+    """The Optimization page's real backends: the Pareto front is a genuine
+    gate-speed vs ZZ trade-off, and the AI advisor's rule-based fallback produces a
+    real, physics-derived review (so it works with no LLM key)."""
+    from app.routers.optimization import _pareto
+    from app.routers.ai import _heuristic_report
+
+    pts = _pareto()
+    assert len(pts) > 10
+    assert all({"j", "zz", "dominated"} <= set(p) for p in pts)
+    assert any(not p["dominated"] for p in pts)  # a real Pareto-optimal set exists
+
+    # rule-based advisor on a low-T1 / low-yield context → must flag both
+    rep = _heuristic_report({
+        "project": {"name": "Test"},
+        "component_counts": {"transmons": 2},
+        "metrics": {"frequency_GHz": 5.1, "anharmonicity_MHz": -300, "coupling_MHz": 35},
+        "coherence": [{"qubit": "Q1", "t1": 40, "t2": 50}],
+        "fabrication_yield": {"yield_pct": 30},
+        "validation_drc": {"violations": []},
+    })
+    assert rep["engine"].startswith("rule-based")
+    assert rep["summary"] and rep["recommendations"] and rep["strengths"]
+    txt = " ".join(r["action"] + r["area"] for r in rep["recommendations"]).lower()
+    assert "coherence" in txt or "manufactur" in txt        # flagged the real gaps
+    assert any(r["priority"] == "high" for r in rep["recommendations"])
+
+
 def test_physics_matches_scqubits():
     """QRIVARA's own transmon engine must agree with scqubits (the industry-standard
     exact-diagonalization package) to high precision — proves physics.py is correct,

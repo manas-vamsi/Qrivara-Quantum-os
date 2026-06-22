@@ -3,11 +3,12 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Users, Share2, FolderGit2, Inbox, UserPlus, Check, X, Loader2,
-  MessageSquare, Shield,
+  MessageSquare, Shield, Search,
 } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/Card";
 import { Button, IconButton } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Form";
 import { Badge } from "@/components/ui/Badge";
 import { Progress } from "@/components/ui/Progress";
 import { Avatar, AvatarGroup } from "@/components/ui/Avatar";
@@ -28,6 +29,38 @@ const TABS: Tab[] = ["mine", "shared", "network", "messages", "teams"];
 const ROLE_TONE: Record<string, "primary" | "cyan" | "violet" | "neutral"> = {
   owner: "primary", editor: "cyan", commenter: "violet", viewer: "neutral",
 };
+
+/** A directory person row with a connection-aware action (search + suggestions). */
+function PersonRow({ u, state, pending, onConnect, onOpen }: {
+  u: any;
+  state: "connected" | "pending" | "incoming" | "none";
+  pending: boolean;
+  onConnect: () => void;
+  onOpen: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-surface-2">
+      <button onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        <Avatar name={u.name} src={u.avatar_url} size={32} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-fg">{u.name}</p>
+          <p className="truncate text-2xs text-fg-subtle">{u.headline || u.org}</p>
+        </div>
+      </button>
+      {state === "connected" ? (
+        <Badge tone="success" dot>connected</Badge>
+      ) : state === "incoming" ? (
+        <Badge tone="warning">wants to connect</Badge>
+      ) : state === "pending" ? (
+        <Badge tone="neutral">pending</Badge>
+      ) : (
+        <Button size="sm" variant="outline" icon={<UserPlus className="h-3.5 w-3.5" />} loading={pending} onClick={onConnect}>
+          Connect
+        </Button>
+      )}
+    </div>
+  );
+}
 
 export default function Collaboration() {
   const navigate = useNavigate();
@@ -56,6 +89,10 @@ export default function Collaboration() {
   const [loading, setLoading] = useState(false);
   const [shareTarget, setShareTarget] = useState<{ id: string; name: string } | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  // User search (Network tab) — backed by GET /users?q=
+  const [userQuery, setUserQuery] = useState("");
+  const [userResults, setUserResults] = useState<any[] | null>(null);
+  const [searching, setSearching] = useState(false);
 
   const owned = projects.filter((p) => p.created_by === me?.id);
 
@@ -75,6 +112,33 @@ export default function Collaboration() {
   useEffect(() => {
     reload();
   }, [reload, userTick]);
+
+  // Debounced user search across the directory (name / handle / org).
+  useEffect(() => {
+    const q = userQuery.trim();
+    if (!q) { setUserResults(null); setSearching(false); return; }
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await api.getUsers(q);
+        setUserResults(Array.isArray(r) ? r.filter((u) => u.id !== me?.id) : []);
+      } catch {
+        setUserResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [userQuery, me?.id]);
+
+  // Connection state for a given user id → drives the row's action.
+  const connState = (uid?: string): "connected" | "pending" | "incoming" | "none" => {
+    const c = conns.find((x) => x.user?.id === uid);
+    if (c?.status === "accepted") return "connected";
+    if (c?.status === "pending" && c?.direction === "outgoing") return "pending";
+    if (c?.status === "pending" && c?.direction === "incoming") return "incoming";
+    return "none";
+  };
 
   const incoming = conns.filter((c) => c.direction === "incoming" && c.status === "pending");
   const accepted = conns.filter((c) => c.status === "accepted");
@@ -267,42 +331,56 @@ export default function Collaboration() {
             </Card>
           </div>
 
-          {/* Suggestions */}
-          <div>
+          {/* Find people + suggestions */}
+          <div className="space-y-6">
             <Card>
               <div className="px-5 pt-5">
-                <h3 className="font-display text-[0.95rem] font-semibold tracking-tight">Suggested</h3>
+                <h3 className="font-display text-[0.95rem] font-semibold tracking-tight">Find people</h3>
+                <p className="text-2xs text-fg-subtle">Search the directory by name, handle or organization.</p>
               </div>
-              <CardContent className="space-y-1 pt-3">
-                {suggestions.length === 0 ? (
-                  <p className="py-2 text-sm text-fg-subtle">No suggestions.</p>
-                ) : (
-                  suggestions.map((u) => {
-                    const outgoing = conns.find((c) => c.user?.id === u.id && c.direction === "outgoing");
-                    return (
-                      <div key={u.id} className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-surface-2">
-                        <button
-                          onClick={() => navigate(`/app/u/${u.id}`)}
-                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                        >
-                          <Avatar name={u.name} size={32} />
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium text-fg">{u.name}</p>
-                            <p className="truncate text-2xs text-fg-subtle">{u.org}</p>
-                          </div>
-                        </button>
-                        {outgoing ? (
-                          <Badge tone="neutral">pending</Badge>
-                        ) : (
-                          <Button size="sm" variant="outline" icon={<UserPlus className="h-3.5 w-3.5" />}
-                            loading={pendingId === u.id} onClick={() => connect(u.id)}>Connect</Button>
-                        )}
-                      </div>
-                    );
-                  })
+              <CardContent className="pt-3">
+                <Input
+                  icon={<Search className="h-4 w-4" />}
+                  placeholder="Search researchers…"
+                  value={userQuery}
+                  onChange={(e) => setUserQuery(e.target.value)}
+                />
+                {userQuery.trim() && (
+                  <div className="mt-3 space-y-1">
+                    {searching ? (
+                      <p className="flex items-center justify-center gap-2 py-4 text-sm text-fg-subtle">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Searching…
+                      </p>
+                    ) : userResults && userResults.length > 0 ? (
+                      userResults.map((u) => (
+                        <PersonRow key={u.id} u={u} state={connState(u.id)} pending={pendingId === u.id}
+                          onOpen={() => navigate(`/app/u/${u.id}`)} onConnect={() => connect(u.id)} />
+                      ))
+                    ) : (
+                      <p className="py-4 text-center text-sm text-fg-subtle">No users match “{userQuery.trim()}”.</p>
+                    )}
+                  </div>
                 )}
               </CardContent>
             </Card>
+
+            {!userQuery.trim() && (
+              <Card>
+                <div className="px-5 pt-5">
+                  <h3 className="font-display text-[0.95rem] font-semibold tracking-tight">Suggested</h3>
+                </div>
+                <CardContent className="space-y-1 pt-3">
+                  {suggestions.length === 0 ? (
+                    <p className="py-2 text-sm text-fg-subtle">No suggestions.</p>
+                  ) : (
+                    suggestions.map((u) => (
+                      <PersonRow key={u.id} u={u} state={connState(u.id)} pending={pendingId === u.id}
+                        onOpen={() => navigate(`/app/u/${u.id}`)} onConnect={() => connect(u.id)} />
+                    ))
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       )}

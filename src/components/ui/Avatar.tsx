@@ -19,11 +19,24 @@ export function Avatar({
   name,
   size = 32,
   className,
+  src,
 }: {
   name: string;
   size?: number;
   className?: string;
+  src?: string | null;
 }) {
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={name}
+        title={name}
+        className={cn("shrink-0 rounded-full object-cover ring-2 ring-surface", className)}
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   const initials = name
     .split(" ")
     .map((p) => p[0])

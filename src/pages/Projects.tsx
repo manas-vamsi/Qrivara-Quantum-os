@@ -4,6 +4,7 @@ import {
   Plus,
   Search,
   Folder,
+  FolderInput,
   Bookmark,
   Share2,
   LayoutGrid,
@@ -17,22 +18,15 @@ import { Progress } from "@/components/ui/Progress";
 import { AvatarGroup } from "@/components/ui/Avatar";
 import { Input, SegmentedControl } from "@/components/ui/Form";
 import { EmptyState } from "@/components/common/EmptyState";
-import { comingSoon } from "@/components/common/ComingSoon";
 import { ShareDialog } from "@/components/collab/ShareDialog";
 import { AIDesignBar } from "@/components/common/AIDesignBar";
 import { PROJECT_STATUS_TONE } from "@/data/mockData";
 import { useAppStore } from "@/store/useAppStore";
 import { useDataStore } from "@/store/useDataStore";
-import { timeAgo } from "@/lib/utils";
+import { api } from "@/lib/api";
+import { cn, timeAgo } from "@/lib/utils";
 
 type Filter = "all" | "active" | "review" | "archived" | "simulating";
-
-const FOLDERS = [
-  { name: "Flagship", count: 1 },
-  { name: "Test chips", count: 2 },
-  { name: "Studies", count: 1 },
-  { name: "Archive", count: 1 },
-];
 
 export default function Projects() {
   const navigate = useNavigate();
@@ -40,6 +34,8 @@ export default function Projects() {
   const { projects, fetchProjects } = useDataStore();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [folderFilter, setFolderFilter] = useState<string | null>(null);
+  const [starredOnly, setStarredOnly] = useState(false);
   const [view, setView] = useState<"grid" | "list">("grid");
   const [shareTarget, setShareTarget] = useState<{ id: string; name: string } | null>(null);
 
@@ -47,9 +43,27 @@ export default function Projects() {
     fetchProjects();
   }, [fetchProjects]);
 
+  // Real folders, derived from the projects' folder field.
+  const folders = useMemo(() => {
+    const m: Record<string, number> = {};
+    projects.forEach((p) => { if (p.folder) m[p.folder] = (m[p.folder] || 0) + 1; });
+    return Object.entries(m).map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [projects]);
+
+  const toggleBookmark = async (id: string) => {
+    try { await api.toggleBookmark(id); await fetchProjects(); } catch (e) { console.error(e); }
+  };
+  const assignFolder = async (id: string, current?: string | null) => {
+    const name = window.prompt("Move to folder (leave blank to remove):", current || "");
+    if (name === null) return;
+    try { await api.updateProject(id, { folder: name.trim() || null }); await fetchProjects(); } catch (e) { console.error(e); }
+  };
+
   const filtered = useMemo(() => {
     return projects.filter((p) => {
       if (filter !== "all" && p.status !== filter) return false;
+      if (folderFilter && p.folder !== folderFilter) return false;
+      if (starredOnly && !p.bookmarked) return false;
       const s = q.toLowerCase();
       return (
         !s ||
@@ -58,7 +72,7 @@ export default function Projects() {
         (p.tags || []).some((t: string) => t.toLowerCase().includes(s))
       );
     });
-  }, [projects, q, filter]);
+  }, [projects, q, filter, folderFilter, starredOnly]);
 
   return (
     <div className="space-y-6">
@@ -76,23 +90,42 @@ export default function Projects() {
       {/* AI design generator — the primary "create" action for this page */}
       <AIDesignBar />
 
-      {/* Folders */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {FOLDERS.map((f) => (
+      {/* Folders + starred — real, derived from your projects */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => { setFolderFilter(null); setStarredOnly(false); }}
+          className={cn(
+            "rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors",
+            !folderFilter && !starredOnly ? "border-primary/30 bg-primary/15 text-primary" : "border-line text-fg-subtle hover:bg-surface-2 hover:text-fg",
+          )}
+        >
+          All projects
+        </button>
+        <button
+          onClick={() => { setStarredOnly((v) => !v); setFolderFilter(null); }}
+          className={cn(
+            "flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors",
+            starredOnly ? "border-primary/30 bg-primary/15 text-primary" : "border-line text-fg-subtle hover:bg-surface-2 hover:text-fg",
+          )}
+        >
+          <Bookmark className={cn("h-3.5 w-3.5", starredOnly && "fill-primary")} /> Starred
+        </button>
+        {folders.map((f) => (
           <button
             key={f.name}
-            onClick={() => comingSoon("Project folders")}
-            className="flex items-center gap-3 rounded-xl border border-line bg-surface p-3.5 text-left transition-colors hover:border-line-strong hover:bg-surface-2"
+            onClick={() => { setFolderFilter((cur) => (cur === f.name ? null : f.name)); setStarredOnly(false); }}
+            className={cn(
+              "flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors",
+              folderFilter === f.name ? "border-primary/30 bg-primary/15 text-primary" : "border-line text-fg-subtle hover:bg-surface-2 hover:text-fg",
+            )}
           >
-            <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary/12 text-primary">
-              <Folder className="h-[1.1rem] w-[1.1rem]" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-fg">{f.name}</p>
-              <p className="text-2xs text-fg-subtle">{f.count} designs</p>
-            </div>
+            <Folder className="h-3.5 w-3.5" /> {f.name}
+            <span className="text-fg-subtle">{f.count}</span>
           </button>
         ))}
+        {folders.length === 0 && (
+          <span className="text-2xs text-fg-subtle">No folders yet — use the folder button on a project to organize.</span>
+        )}
       </div>
 
       {/* Controls */}
@@ -145,7 +178,10 @@ export default function Projects() {
                   {p.qubits}Q
                 </div>
                 <div className="flex items-center gap-1">
-                  <IconButton size="sm" aria-label="Bookmark" onClick={(e) => { e.stopPropagation(); comingSoon("Bookmarks"); }}><Bookmark className="h-4 w-4" /></IconButton>
+                  <IconButton size="sm" aria-label={p.bookmarked ? "Remove bookmark" : "Bookmark"} onClick={(e) => { e.stopPropagation(); toggleBookmark(p.id); }}>
+                    <Bookmark className={cn("h-4 w-4", p.bookmarked && "fill-primary text-primary")} />
+                  </IconButton>
+                  <IconButton size="sm" aria-label="Move to folder" onClick={(e) => { e.stopPropagation(); assignFolder(p.id, p.folder); }}><FolderInput className="h-4 w-4" /></IconButton>
                   <IconButton size="sm" aria-label="Share" onClick={(e) => { e.stopPropagation(); setShareTarget({ id: p.id, name: p.name }); }}><Share2 className="h-4 w-4" /></IconButton>
                 </div>
               </div>
@@ -154,6 +190,11 @@ export default function Projects() {
                 <Badge tone={PROJECT_STATUS_TONE[p.status] || "neutral"} dot={p.status === "active" || p.status === "simulating"}>
                   {p.status}
                 </Badge>
+                {p.folder && (
+                  <span className="flex items-center gap-1 text-2xs text-fg-subtle">
+                    <Folder className="h-3 w-3" />{p.folder}
+                  </span>
+                )}
               </div>
               <p className="mt-1 line-clamp-2 text-sm text-fg-subtle">{p.description}</p>
               <div className="mt-3 flex flex-wrap gap-1.5">

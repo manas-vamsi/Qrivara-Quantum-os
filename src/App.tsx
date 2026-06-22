@@ -29,6 +29,7 @@ const Profile = lazy(() => import("@/pages/Profile"));
 const ComponentLibrary = lazy(() => import("@/pages/ComponentLibrary"));
 const MaterialLibrary = lazy(() => import("@/pages/MaterialLibrary"));
 const Settings = lazy(() => import("@/pages/Settings"));
+const Documentation = lazy(() => import("@/pages/Documentation"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
 
 function PageLoader() {
@@ -49,6 +50,7 @@ const withSuspense = (el: React.ReactNode) => (
 
 const router = createBrowserRouter([
   { path: "/", element: <Landing /> },
+  { path: "/documentation", element: withSuspense(<Documentation />) },
   {
     path: "/app",
     element: <AppShell />,

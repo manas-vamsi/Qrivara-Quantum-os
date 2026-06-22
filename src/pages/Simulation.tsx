@@ -173,9 +173,16 @@ export default function Simulation() {
     if (jobId) api.downloadSimulationExport(jobId, fmt);
   };
 
-  const handleExportDesign = (fmt: string) => {
-    const dId = projects.find(p => p.id === projectId)?.id; // simplification
-    if (dId) api.downloadDesignExport(dId, fmt);
+  const handleExportDesign = async (fmt: string) => {
+    if (!projectId) return;
+    try {
+      // Design export routes need the DESIGN id, not the project id — resolve it.
+      const designs = await api.getProjectDesigns(projectId);
+      const dId = designs?.[0]?.id;
+      if (dId) api.downloadDesignExport(dId, fmt);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   // Export the chip as a Qiskit Target ("digital twin") — resolves the project's
