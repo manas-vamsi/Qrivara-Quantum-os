@@ -226,6 +226,33 @@ SIMULATION_TYPES = {
         "outputs": ["p_phys", "p_logical", "distance", "lambda",
                     "physical_qubits_per_logical", "distance_table"],
     },
+    "cryogenic": {
+        "label": "Cryogenic Drive Line",
+        "question": "Does the fridge wiring thermalise the drive and stay within each stage's cooling budget?",
+        "engine": "QRIVARA attenuator-cascade thermal/heat model (Krinner 2019; Pozar)",
+        "outputs": ["total_attenuation_dB", "signal_at_device_dBm", "device_photons_nbar",
+                    "stages", "worst_stage", "recommendations"],
+    },
+    "qubit_family": {
+        "label": "Qubit Family (Zoo)",
+        "question": "What is the exact energy spectrum of a given superconducting qubit family?",
+        "engine": "scqubits exact diagonalization — Transmon/Fluxonium/FluxQubit/0-π/cos2φ/Kerr-cat orchestration",
+        "outputs": ["family", "levels_GHz", "f01_GHz", "anharmonicity_MHz", "supported", "refs", "note"],
+    },
+    "surface_participation": {
+        "label": "Surface Participation → T1",
+        "question": "Where is the qubit's field energy stored, and what T1 does that geometry imply?",
+        "engine": "QRIVARA 3-D field solve → bulk + MA/MS/SA interface participation (Wang 2015) → dielectric T1",
+        "outputs": ["p_substrate", "p_MA", "p_MS", "p_SA", "interfaces",
+                    "T1_dielectric_us", "Q_dielectric", "channel_T1_us"],
+    },
+    "packaging": {
+        "label": "Packaging / Box Modes",
+        "question": "What package resonances does the sample holder have, and do any collide with the qubits/readout?",
+        "engine": "QRIVARA rectangular-cavity eigenmodes (Pozar §6.3) + chip-package collision & Purcell screen",
+        "outputs": ["box_modes", "collisions", "lowest_mode_GHz", "n_modes",
+                    "n_collisions", "purcell_t1_us", "device_freqs"],
+    },
 }
 
 # Cryogenic film data for kinetic-inductance (ρn in µΩ·cm, Tc in K). Normal-state
@@ -268,6 +295,10 @@ def run_job(job: SimulationJob, design: Design) -> dict:
         "readout": lambda: _readout(p),
         "qec": lambda: _qec(p),
         "zz_crosstalk": lambda: _zz_crosstalk(nodes, p),
+        "packaging": lambda: _packaging(nodes, p),
+        "surface_participation": lambda: _surface_participation(nodes, p),
+        "qubit_family": lambda: _qubit_family(p),
+        "cryogenic": lambda: _cryogenic(p),
         "frequency": lambda: _frequency(p, nodes),
         "capacitance": lambda: _capacitance(nodes, p),
         "field_solver": lambda: _field_solver(nodes, p),
@@ -495,6 +526,128 @@ def _field_solver(nodes: list, p: dict | None = None) -> dict:
         return {"labels": [], "field_map": None,
                 "method": f"field solver unavailable: {str(exc)[:60]}",
                 **_coverage(len(all_q), len(qubits))}
+
+
+# ── 3a3. SURFACE PARTICIPATION — geometry-derived dielectric T1 ────────────
+# Representative loss tangents per interface/bulk channel (Wang 2015; Woods 2019;
+# Material Matters). tanδ_surface ≈ 1e-3 (lossy native oxides); bulk Si ≈ 1e-7.
+_PARTICIPATION_TAND = {
+    "MA": 1.5e-3,        # metal–air (top oxide)
+    "MS": 2.2e-3,        # metal–substrate (buried interface)
+    "SA": 2.6e-3,        # substrate–air (exposed substrate)
+    "substrate": 1.8e-7,  # bulk substrate dielectric (default: HRFZ silicon)
+}
+# Bulk loss tangent by substrate (keyed on εr): high-resistivity Si is the lowest;
+# sapphire and quartz are measurably lossier, so the same participation gives a
+# lower bulk Q. Applying Si's 1.8e-7 to every substrate overstates T1 by up to ~10×.
+_SUBSTRATE_TAND = {
+    11.7: 1.8e-7,   # high-resistivity silicon
+    9.8: 1.0e-6,    # sapphire (c-plane)
+    3.8: 5.0e-6,    # fused quartz / SiO2
+}
+
+
+def _surface_participation(nodes: list, p: dict | None = None) -> dict:
+    """Geometry-derived T1 (Module gap #5): solve the qubit-pad field in 3-D, extract
+    where the electric energy is stored (bulk substrate/vacuum + the MA/MS/SA thin
+    interface layers, Wang 2015), and convert those participations into the dielectric
+    T1 budget — 1/Q = Σ p_i·tanδ_i, T1 = Q/(2πf). Unlike the parameterized decoherence
+    interfaces, the participations here come from the solved field of THIS layout."""
+    p = p or {}
+    all_q = _transmons(nodes)
+    qubits = all_q[: settings.fem3d_max_qubits]
+    if not qubits:
+        return {"interfaces": [], "method": "surface participation (no transmons in layout)",
+                **_coverage(0, 0)}
+    eps_sub = float(p.get("eps_substrate", 11.7))
+    conductors = _build_conductors(qubits)
+    try:
+        from . import fem3d
+        budget = int(_clamp(int(p.get("max_nodes", 150_000)), 40_000, 400_000))
+        sp = fem3d.surface_participation(conductors, eps_substrate=eps_sub, max_nodes=budget)
+        if sp is None:
+            raise ValueError("solver returned no result")
+    except Exception as exc:  # noqa: BLE001 — no graceful physics fallback for a field quantity
+        return {"interfaces": [], "method": f"surface participation unavailable: {str(exc)[:60]}",
+                **_coverage(len(all_q), len(qubits))}
+
+    # qubit f01 for the Q→T1 conversion (from the LOM chain; default if unavailable)
+    f01 = 5.0
+    try:
+        lom = _lom(nodes, p)
+        if lom.get("qubits"):
+            f01 = float(lom["qubits"][0]["f01_GHz"])
+    except Exception:  # noqa: BLE001
+        pass
+
+    # substrate bulk tanδ tracks the chosen substrate (Si/sapphire/quartz)
+    sub_tand = _SUBSTRATE_TAND.get(round(eps_sub, 1), _PARTICIPATION_TAND["substrate"])
+    parts = {"MA": sp["p_MA"], "MS": sp["p_MS"], "SA": sp["p_SA"], "substrate": sp["p_substrate"]}
+    interfaces, channels = [], []
+    for name, part in parts.items():
+        tand = sub_tand if name == "substrate" else _PARTICIPATION_TAND[name]
+        interfaces.append({"name": name, "p": part, "tanD": tand})
+        inv_q = part * tand
+        t1 = physics.t1_from_q(1.0 / inv_q, f01) if inv_q > 0 else math.inf
+        channels.append({"channel": name, "participation": round(part, 8),
+                         "tan_delta": tand,
+                         "Q_limit": round(1.0 / inv_q) if inv_q > 0 else None,
+                         "T1_us": round(t1, 1) if math.isfinite(t1) else None})
+
+    lb = physics.loss_budget([{"p": i["p"], "tanD": i["tanD"]} for i in interfaces], f01)
+    channels.sort(key=lambda c: (c["T1_us"] is None, c["T1_us"] or 0.0))  # tightest channel first
+    return {
+        "f01_GHz": round(f01, 4),
+        "energized": sp["energized"],
+        "p_substrate": round(sp["p_substrate"], 6),
+        "p_vacuum": round(sp["p_vacuum"], 6),
+        "p_MA": sp["p_MA"], "p_MS": sp["p_MS"], "p_SA": sp["p_SA"],
+        "layers": sp["layers"],
+        "channel_T1_us": channels,
+        "limiting_channel": channels[0]["channel"] if channels else None,
+        "Q_dielectric": round(lb["Q"]) if math.isfinite(lb["Q"]) else None,
+        "T1_dielectric_us": round(lb["t1Us"], 1) if math.isfinite(lb["t1Us"]) else None,
+        # ready to drop straight into the decoherence budget as field-derived interfaces
+        "interfaces": [{"p": i["p"], "tanD": i["tanD"]} for i in interfaces],
+        "grid": sp["grid"],
+        "method": ("3-D field solve → bulk + MA/MS/SA surface participation (Wang 2015) "
+                   "→ dielectric T1; surface layers are grid-resolution estimates"),
+        **_coverage(len(all_q), len(qubits)),
+    }
+
+
+# ── CRYOGENIC DRIVE LINE — fridge wiring thermal/heat budget ────────────────
+def _cryogenic(p: dict | None = None) -> dict:
+    """Cryogenic drive-line analysis (param-driven, not layout-dependent): runs the
+    attenuator-cascade thermal model over a fridge stage stack. Uses the default
+    Bluefors-class stages unless `stages` is supplied; a simple `mxc_attenuation_dB`
+    override is honored for quick what-ifs."""
+    import copy
+    from . import cryo
+    p = p or {}
+    if isinstance(p.get("stages"), list) and p["stages"]:
+        stages = p["stages"]
+    else:
+        stages = copy.deepcopy(cryo.DEFAULT_STAGES)
+        if p.get("mxc_attenuation_dB") is not None:
+            stages[-1]["attenuation_dB"] = float(p["mxc_attenuation_dB"])
+    return cryo.analyze_drive_line(
+        stages, float(p.get("f_GHz", 5.0)), float(p.get("input_power_dBm", -20.0)))
+
+
+# ── QUBIT ZOO — exact spectrum of any supported qubit family (scqubits) ─────
+def _qubit_family(p: dict | None = None) -> dict:
+    """Exact energy spectrum of a named qubit family (the Qubit Zoo). Param-driven
+    (not layout-dependent): routes to the right scqubits class via scq.qubit_spectrum
+    with any provided overrides. Conceptual families return supported=False honestly."""
+    from . import scq
+    p = p or {}
+    fam = str(p.get("family", "fluxonium"))
+    levels = int(_clamp(int(p.get("levels", 6)), 3, 8))
+    overrides = {k: float(p[k]) for k in
+                 ("EJ", "EC", "EL", "flux", "ng", "EJmax", "d", "E_osc", "K")
+                 if k in p and isinstance(p[k], (int, float))}
+    return scq.qubit_spectrum(fam, overrides, levels)
 
 
 # ── 3b. LOM — FEM capacitance → Hamiltonian (the EM→Hamiltonian link) ──────
@@ -1588,3 +1741,120 @@ def _zz_crosstalk(nodes: list, p: dict | None = None) -> dict:
             # kept for backward-compat (== static_phase_error_pct)
             "static_leakage_pct": static_phase_pct,
             "method": "perturbation theory (paper §4.2)"}
+
+
+# ── PACKAGING — sample-holder box modes & chip↔package collisions ───────────
+def _device_frequencies(nodes: list, p: dict) -> list[dict]:
+    """Real on-chip frequencies the package modes must avoid: qubit f01 (from the
+    LOM chain — FEM capacitance → Hamiltonian) and readout-resonator frequencies
+    (CPW length → f, or the node's target frequency). Falls back to params/defaults
+    when the layout carries no geometry."""
+    devices: list[dict] = []
+    try:
+        lom = _lom(nodes, p)
+        for q in lom.get("qubits", []):
+            f = float(q.get("f01_GHz", 0.0) or 0.0)
+            if f > 0:
+                devices.append({"label": q.get("qubit", "Q"), "freq_GHz": f, "kind": "qubit"})
+    except Exception:  # noqa: BLE001 — geometry-free layout, fall through
+        pass
+    eps_sub = float(p.get("eps_substrate", 11.7))
+    for i, n in enumerate(nodes):
+        d = (n.get("data", {}) or {})
+        if d.get("kind") != "resonator":
+            continue
+        prm = d.get("params", {}) or {}
+        length = float(prm.get("length_um", 0) or 0)
+        if length:
+            fr = physics.cpw_resonator_freq(length, eps_sub, prm.get("mode", "quarter"))
+        else:
+            fr = float(prm.get("target_freq_GHz", 0) or 0)
+        if fr > 0:
+            devices.append({"label": prm.get("label", f"R{i+1}"), "freq_GHz": fr, "kind": "readout"})
+    if not devices:
+        # No extractable on-chip geometry. Fall back to reference frequencies, but
+        # mark them ``assumed`` so the UI never presents them as design-derived
+        # (the platform's no-fake-data rule): a geometry-free layout must not look
+        # like it produced real qubit/readout frequencies.
+        fq = float(p.get("f01_GHz", 5.0)); fr = float(p.get("resonator_freq_GHz", 7.1))
+        devices = [{"label": "Q1", "freq_GHz": fq, "kind": "qubit", "assumed": True},
+                   {"label": "R1", "freq_GHz": fr, "kind": "readout", "assumed": True}]
+    return devices
+
+
+def _packaging(nodes: list, p: dict | None = None) -> dict:
+    """Packaging / box-mode analysis (Module 17). Computes the rectangular sample-
+    holder cavity's electromagnetic eigenmodes (Pozar §6.3), then screens them for
+    collisions with the chip's real qubit/readout frequencies and reports the
+    radiative (Purcell) T1 a near-resonant box mode would impose. Box dimensions come
+    from params; when absent they default to the chip's bounding box plus clearance."""
+    p = p or {}
+    # Default the package to the chip extent + clearance when dimensions aren't given.
+    qubits = _transmons(nodes)
+    chip_w_mm = chip_h_mm = 5.0
+    if qubits:
+        conductors = _build_conductors(qubits)
+        xs0 = min(c["x"] for c in conductors); xs1 = max(c["x"] + c["w"] for c in conductors)
+        ys0 = min(c["y"] for c in conductors); ys1 = max(c["y"] + c["h"] for c in conductors)
+        chip_w_mm = max((xs1 - xs0) / 1000.0, 1.0)
+        chip_h_mm = max((ys1 - ys0) / 1000.0, 1.0)
+    clearance = float(p.get("clearance_mm", 2.0))
+    a_mm = float(p.get("box_a_mm", round(chip_w_mm + 2 * clearance, 2)))
+    b_mm = float(p.get("box_b_mm", round(chip_h_mm + 2 * clearance, 2)))
+    d_mm = float(p.get("box_d_mm", 4.0))            # lid height above the chip
+    eps_r = float(p.get("box_eps_r", 1.0))          # vacuum package by default
+    margin_mhz = float(_clamp(float(p.get("collision_margin_MHz", 200.0)), 0.0, 2000.0))
+    q_package = float(p.get("q_package", 1e4))
+    # report up to 40 GHz so even a small (healthy) package shows its lowest mode
+    # and the margin to the operating band, instead of an empty list.
+    max_freq = float(_clamp(float(p.get("max_freq_GHz", 40.0)), 5.0, 120.0))
+
+    modes = physics.box_modes(a_mm, b_mm, d_mm, eps_r, max_freq_ghz=max_freq)
+    devices = _device_frequencies(nodes, p)
+    assumed_devices = any(d.get("assumed") for d in devices)
+    collisions = physics.package_collisions(modes, devices, margin_mhz=margin_mhz)
+
+    # Worst-case radiative T1: the qubit closest to a package mode.
+    worst_t1 = math.inf
+    worst_pair = None
+    qubit_freqs = [dev for dev in devices if dev["kind"] == "qubit"]
+    for dev in qubit_freqs:
+        for md in modes:
+            t1 = physics.package_purcell_t1(float(dev["freq_GHz"]), md["freq_GHz"], q_package)
+            if t1 < worst_t1:
+                worst_t1 = t1
+                worst_pair = {"qubit": dev["label"], "mode": md["mode"],
+                              "mode_freq_GHz": md["freq_GHz"]}
+
+    recs = []
+    if assumed_devices:
+        recs.append("No qubit/readout frequencies could be extracted from the layout — "
+                    "the collision screen uses REFERENCE values (5.0 GHz qubit, 7.1 GHz readout), "
+                    "not your design. Add transmons/resonators with geometry for a real screen.")
+    if collisions:
+        recs.append(f"{len(collisions)} chip↔package collision(s) within {margin_mhz:.0f} MHz — "
+                    "shrink the package (raise mode frequencies above the operating band) "
+                    "or add mode-suppression (absorptive coating / internal walls).")
+    else:
+        recs.append(f"No package mode within {margin_mhz:.0f} MHz of any qubit/readout — clean band.")
+    if modes and modes[0]["freq_GHz"] < max((d["freq_GHz"] for d in devices), default=8.0):
+        recs.append(f"Lowest box mode ({modes[0]['freq_GHz']:.2f} GHz) sits below the highest device "
+                    "frequency — a smaller enclosure pushes all modes above the operating band.")
+
+    return {
+        "box_mm": {"a": a_mm, "b": b_mm, "d": d_mm, "eps_r": eps_r},
+        "box_modes": modes,
+        "n_modes": len(modes),
+        "lowest_mode_GHz": modes[0]["freq_GHz"] if modes else None,
+        "device_freqs": devices,
+        "device_freqs_assumed": assumed_devices,
+        "collisions": collisions,
+        "n_collisions": len(collisions),
+        "collision_margin_MHz": margin_mhz,
+        "purcell_t1_us": round(worst_t1, 1) if math.isfinite(worst_t1) else None,
+        "purcell_worst": worst_pair,
+        "q_package": q_package,
+        "recommendations": recs,
+        "method": "rectangular-cavity eigenmodes (Pozar §6.3) + chip-package collision/Purcell screen",
+        **_coverage(len(qubits), len(qubits)),
+    }

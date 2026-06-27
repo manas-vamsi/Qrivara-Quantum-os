@@ -24,6 +24,26 @@ def simulation_types():
     return SIMULATION_TYPES
 
 
+@router.get("/qubit-families")
+def qubit_families():
+    """The Qubit Zoo: every supported superconducting-qubit family, its solver,
+    default parameters, references and an honest note (drives the family picker)."""
+    from ..scq import QUBIT_FAMILIES, available
+    return {
+        "scqubits_available": available(),
+        "families": [
+            {
+                "id": f["id"], "label": f["label"], "solver": f["solver"],
+                "supported": f.get("supported", f["solver"] != "conceptual"),
+                "tunable": f.get("tunable", False),
+                "params": f.get("params", {}), "refs": f.get("refs", []),
+                "note": f.get("note", ""), "nearest": f.get("nearest"),
+            }
+            for f in QUBIT_FAMILIES
+        ],
+    }
+
+
 @router.post("/designs/{design_id}/simulations", status_code=202)
 def submit(
     design_id: str,

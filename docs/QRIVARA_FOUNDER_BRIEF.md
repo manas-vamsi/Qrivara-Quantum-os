@@ -10,8 +10,8 @@
 
 - The **hard, defensible core is built and validated**: our own EM field solver (3-D electrostatic FEM) + a canonical-physics quantum engine + 25+ analyses + the full design→sim→optimize→fab→collaborate loop, in the browser.
 - It is **engineering-complete but pre-production**: we still need real auth, deployment to a live tenant, and a compute tier that scales beyond one machine.
-- The one genuinely-missing big capability is **full-wave EM** (we do quasi-static today). Everything else is either done or a wiring/polish task.
-- We are **bottlenecked by compute and runway**, not by whether the science works. That's the story for the raise.
+- The four biggest gaps to "outstanding" (full list in §6): **(1) validation against a real fabricated device, (2) full-wave EM on HPC, (3) compute scale, (4) production hardening.** Most other gaps are scoped, known increments — not unknowns.
+- We are **bottlenecked by compute, validation-access, and runway**, not by whether the science works. That's the story for the raise.
 
 ---
 
@@ -79,13 +79,56 @@
 
 ---
 
-## 6. Honest limitations (say these out loud)
+## 6. Honest limitations — the full list (say these out loud)
 
-1. **Quasi-static, not full-wave (yet on HPC)** — capacitance extraction is real and ±0.4% converged; frequencies come from the LC + Josephson model. The full-wave path (Gmsh + Palace + worker) is **built and tested with a fallback** — it just needs the Palace MPI binary on an HPC node to go live.
-2. **Compute ceiling** — 3-D FEM is capped (~6 qubits on the 3-D tier; 16-qubit FEM cap) on one machine. Bigger chips need HPC. **This is the binding constraint.**
-3. **T1 loss is parameterized**, not yet geometry-derived.
-4. **Not yet hardened for production** (auth, multi-tenant, SLA, security review for enterprise).
-5. **Pre-revenue, pre-users** — we have the product, not yet the market proof. First pilots are the next milestone.
+> The gap between "engineering-complete core" (where we are) and an *outstanding* product. Grouped; the first four are the ones that most matter.
+
+**The big four**
+
+1. **No validation against a real fabricated device.** The physics is validated vs the literature *and* `scqubits` (to <0.001 GHz) — excellent — but never correlated to measured hardware. For a quantum-EDA tool, "our prediction matched the fabbed chip within X%" is the single most credibility-defining claim, and we don't have it yet. **Needs a fab/measurement partner.**
+2. **Full-wave EM isn't live.** We do quasi-static capacitance (±0.4%) + analytic LC eigenmodes; frequencies come from the LC + Josephson model. The Gmsh + Palace + worker integration is **built and tested with a fallback** — it just needs the Palace MPI binary on an HPC node.
+3. **Compute ceiling.** 3-D FEM is capped (~6 qubits 3-D; 16-qubit FEM) on one machine. 100–1,000-qubit chips — the actual market — need distributed/HPC + autoscaling workers. **This is the binding constraint.**
+4. **Not production-hardened.** Dev auth is a header; Supabase JWT is scaffolded but unwired. No live multi-tenant deploy, no monitoring/backups, no security review.
+
+**Physics / scientific depth**
+
+5. **T₁ is parameterized**, not geometry-derived (the surface-participation integral from the solved field).
+6. **No tunable-coupler net-zero-ZZ** module yet.
+7. **Gate fidelity is coherent-control** (ideal/instantaneous echo, no spectators, no Lindblad master-equation in the pulse sim); the on-chip T₁/T₂ number is additive, not a full open-system device sim.
+8. **Single-mode element quantization** — no multi-mode/distributed-element, packaging/box-mode, or radiation analysis.
+9. **Inverse design is closed-form, single-qubit** — not a field/geometry inverse or multi-qubit layout solver.
+10. **No head-to-head benchmark vs Ansys/COMSOL** on identical geometries, and **no uncertainty bars** on most predicted quantities.
+11. **Loss uses fixed interface participations**, not a measured-material database; process-variation is Monte-Carlo on Ic/Cσ only (no foundry corner analysis).
+
+**Infrastructure / scale / security**
+
+12. **No object storage** — avatars are data-URLs in the DB; GDS/large artifacts have nowhere to live at scale.
+13. **In-app code execution runs Python server-side** (fine locally, behind a flag; needs a sandbox/container for multi-tenant).
+14. **Code Studio workspace is localStorage-only** (not server-side or shared).
+15. **No CI/CD, observability, rate-limiting, secrets management, or SOC2/ISO** — all needed for enterprise/defense.
+
+**Ecosystem / fabrication**
+
+16. **SQuADDS** (validated-design library) + **Qiskit-Metal** (fab-correct GDS) are blocked by a `numpy<2` clash → need an isolated worker image.
+17. **No foundry/PDK integration** or per-foundry DRC packs; GDS export is geometry-correct but **not PDK-validated for tape-out.**
+
+**Product / collaboration / UX**
+
+18. **Not true live co-editing** — sharing/comments/presence exist, but no CRDT/multi-cursor real-time sync (the "Figma" claim is aspirational here).
+19. **Linear snapshots, no branch/merge or design diff-merge.**
+20. **AI** depends on external LLM keys (working) but has **no eval/guardrail harness and no cost controls** at scale.
+21. **Thin onboarding** (getting-started + docs exist, no interactive tutorial/template gallery); **not mobile-optimized; accessibility (WCAG) un-audited;** notifications are in-app only (no email/push).
+
+**Engineering quality**
+
+22. **Test coverage is backend-physics-heavy (59 tests);** frontend/E2E tests are manual (Playwright), not in CI.
+23. A few **honest "coming soon" stubs** remain (password/2FA, third-party integrations) — correctly labeled, not fake, but incomplete.
+
+**Business / go-to-market**
+
+24. **Pre-revenue, pre-users** — no pilots, design partners, or LOIs yet.
+25. **No published benchmarks / case studies / whitepaper;** pricing and TAM/SAM/SOM unquantified.
+26. **Team of two (one dev)** — key-person and bandwidth risk.
 
 ---
 

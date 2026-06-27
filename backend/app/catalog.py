@@ -199,23 +199,55 @@ COMPONENT_LIBRARY = [
      "defaults": {"diameter_um": 60, "depth_um": 525, "impedance_ohm": 50, "material": "Copper"}},
 ]
 
+# Superconducting films. `surface_tanD` is the representative metal–air interface
+# loss tangent the film tends to give (TLS-dominated); `best_t1_us` is a published
+# best-case transmon T1 associated with that film (a "what's achievable" marker, not
+# a guarantee). Values are representative literature figures — see `refs`.
 CONDUCTORS = [
-    {"id": "al", "name": "Aluminum", "conductivity_Sm": 3.8e7, "tcK": 1.2, "rho_n_uohm_cm": 2.7, "note": "Junction electrodes"},
-    {"id": "nb", "name": "Niobium", "conductivity_Sm": 6.6e6, "tcK": 9.3, "rho_n_uohm_cm": 15.0, "note": "Workhorse film"},
-    {"id": "tin", "name": "Titanium Nitride", "conductivity_Sm": 5.0e6, "tcK": 4.5, "rho_n_uohm_cm": 100.0, "note": "High kinetic inductance"},
-    {"id": "nbn", "name": "Niobium Nitride", "conductivity_Sm": 2.5e6, "tcK": 16.0, "rho_n_uohm_cm": 200.0, "note": "Very high Lk, high Tc"},
-    {"id": "nbtin", "name": "Niobium Titanium Nitride", "conductivity_Sm": 3.0e6, "tcK": 14.5, "rho_n_uohm_cm": 150.0, "note": "High-Lk, low-loss"},
-    {"id": "granal", "name": "Granular Aluminum", "conductivity_Sm": 1.0e5, "tcK": 1.8, "rho_n_uohm_cm": 800.0, "note": "Superinductor films"},
-    {"id": "ta", "name": "Tantalum", "conductivity_Sm": 7.7e6, "tcK": 4.4, "rho_n_uohm_cm": 13.0, "note": "Record coherence"},
-    {"id": "au", "name": "Gold", "conductivity_Sm": 4.1e7, "tcK": 0, "rho_n_uohm_cm": 2.2, "note": "Normal-metal wirebond / GND"},
-    {"id": "cu", "name": "Copper", "conductivity_Sm": 5.96e7, "tcK": 0, "rho_n_uohm_cm": 1.7, "note": "Normal-metal packaging"},
+    {"id": "al", "name": "Aluminum", "conductivity_Sm": 3.8e7, "tcK": 1.2, "rho_n_uohm_cm": 2.7,
+     "surface_tanD": 1.5e-3, "best_t1_us": 100, "refs": ["Barends 2013", "Krantz 2019"],
+     "note": "Junction electrodes; the original transmon film"},
+    {"id": "nb", "name": "Niobium", "conductivity_Sm": 6.6e6, "tcK": 9.3, "rho_n_uohm_cm": 15.0,
+     "surface_tanD": 2.0e-3, "best_t1_us": 80, "refs": ["IBM", "Krantz 2019"],
+     "note": "Workhorse film; higher Tc, larger native-oxide loss"},
+    {"id": "tin", "name": "Titanium Nitride", "conductivity_Sm": 5.0e6, "tcK": 4.5, "rho_n_uohm_cm": 100.0,
+     "surface_tanD": 1.0e-3, "best_t1_us": 60, "refs": ["Vissers 2010", "Ohya 2014"],
+     "note": "High kinetic inductance; low surface loss"},
+    {"id": "nbn", "name": "Niobium Nitride", "conductivity_Sm": 2.5e6, "tcK": 16.0, "rho_n_uohm_cm": 200.0,
+     "surface_tanD": 2.0e-3, "best_t1_us": 30, "refs": ["Niepce 2019"],
+     "note": "Very high Lk, high Tc"},
+    {"id": "nbtin", "name": "Niobium Titanium Nitride", "conductivity_Sm": 3.0e6, "tcK": 14.5, "rho_n_uohm_cm": 150.0,
+     "surface_tanD": 1.2e-3, "best_t1_us": 50, "refs": ["Bruno 2015"],
+     "note": "High-Lk, low-loss"},
+    {"id": "granal", "name": "Granular Aluminum", "conductivity_Sm": 1.0e5, "tcK": 1.8, "rho_n_uohm_cm": 800.0,
+     "surface_tanD": 2.0e-3, "best_t1_us": 30, "refs": ["Grünhaupt 2019", "Maleeva 2018"],
+     "note": "Superinductor films (kΩ/sq sheet Lk)"},
+    {"id": "ta", "name": "Tantalum", "conductivity_Sm": 7.7e6, "tcK": 4.4, "rho_n_uohm_cm": 13.0,
+     "surface_tanD": 5.0e-4, "best_t1_us": 500, "refs": ["Place 2021", "Wang 2022"],
+     "note": "Record coherence (α-Ta on sapphire, T1 ~0.3–0.5 ms)"},
+    {"id": "au", "name": "Gold", "conductivity_Sm": 4.1e7, "tcK": 0, "rho_n_uohm_cm": 2.2,
+     "surface_tanD": None, "best_t1_us": None, "refs": [],
+     "note": "Normal-metal wirebond / GND (not superconducting)"},
+    {"id": "cu", "name": "Copper", "conductivity_Sm": 5.96e7, "tcK": 0, "rho_n_uohm_cm": 1.7,
+     "surface_tanD": None, "best_t1_us": None, "refs": [],
+     "note": "Normal-metal packaging (not superconducting)"},
 ]
 
+# Substrates. `thermal_W_mK` is the ~room-temperature thermal conductivity (cryogenic
+# values differ but the ranking holds); `tanD` is the bulk dielectric loss tangent.
 SUBSTRATES = [
-    {"id": "si", "name": "Silicon", "eps": 11.7, "tanD": 2e-7, "thickness_um": 525, "note": "High-resistivity Si"},
-    {"id": "sapphire", "name": "Sapphire", "eps": 9.8, "tanD": 1e-7, "thickness_um": 430, "note": "Low-loss c-plane"},
-    {"id": "sic", "name": "Silicon Carbide", "eps": 9.7, "tanD": 5e-7, "thickness_um": 500, "note": "High thermal conductivity"},
-    {"id": "quartz", "name": "Quartz", "eps": 3.8, "tanD": 3e-7, "thickness_um": 500, "note": "Fused silica"},
+    {"id": "si", "name": "Silicon", "eps": 11.7, "tanD": 2e-7, "thickness_um": 525,
+     "thermal_W_mK": 150, "best_t1_us": 270, "refs": ["Krantz 2019"],
+     "note": "High-resistivity Si; foundry-standard"},
+    {"id": "sapphire", "name": "Sapphire", "eps": 9.8, "tanD": 1e-7, "thickness_um": 430,
+     "thermal_W_mK": 35, "best_t1_us": 500, "refs": ["Place 2021"],
+     "note": "Low-loss c-plane; best with α-Ta"},
+    {"id": "sic", "name": "Silicon Carbide", "eps": 9.7, "tanD": 5e-7, "thickness_um": 500,
+     "thermal_W_mK": 490, "best_t1_us": 60, "refs": ["Lukashenko 2022"],
+     "note": "Very high thermal conductivity"},
+    {"id": "quartz", "name": "Quartz", "eps": 3.8, "tanD": 3e-7, "thickness_um": 500,
+     "thermal_W_mK": 10, "best_t1_us": 50, "refs": [],
+     "note": "Fused silica; low εr → larger features"},
 ]
 
 LOSS_INTERFACES = [

@@ -80,5 +80,30 @@ class Settings(BaseSettings):
     code_exec_timeout_s: int = 20            # hard wall-clock limit per run
     code_exec_max_output: int = 40000        # chars of combined stdout/stderr returned
 
+    # ── Hardening (app.middleware) ──────────────────────────────────────────
+    # Structured JSON access logs (method, path, status, duration, request id) +
+    # a global exception handler that returns a clean 500 (never a stack trace) and
+    # logs the traceback server-side. Safe to leave on everywhere.
+    log_requests: bool = True
+    # Reject requests whose declared Content-Length exceeds this (bytes) with 413,
+    # before the body is read. Covers well-behaved clients only — a chunked or
+    # header-less upload needs a hard cap at the proxy/ASGI layer. Generous default
+    # for design docs / data-URL avatars.
+    max_body_bytes: int = 8_000_000
+    # Per-client-IP token-bucket rate limit. In-process (per uvicorn worker), so the
+    # cluster limit ≈ WEB_CONCURRENCY × rate_limit_rpm; for a hard global limit put a
+    # reverse proxy / API gateway in front. /health and OPTIONS are always exempt.
+    rate_limit_enabled: bool = True
+    rate_limit_rpm: int = 240                # sustained requests/min per IP
+    rate_limit_burst: int = 60               # extra burst allowance on top of the rate
+    # Trust the X-Forwarded-For header for the client IP. OFF by default: when the API
+    # is reachable directly, a client can spoof XFF to mint a fresh rate-limit bucket
+    # per request and bypass the limit entirely. Enable ONLY when a trusted reverse
+    # proxy (which overwrites/strips inbound XFF) sits in front.
+    trust_forwarded_for: bool = False
+    # Send conservative security headers (nosniff, no-frame, referrer policy). The API
+    # serves JSON, not HTML, so these are safe defaults.
+    security_headers: bool = True
+
 
 settings = Settings()

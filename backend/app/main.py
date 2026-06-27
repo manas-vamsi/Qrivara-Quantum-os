@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .db import init_db
+from . import middleware
 from .routers import (
     ai,
     auth,
@@ -60,6 +61,17 @@ app = FastAPI(
     redoc_url="/redoc" if _is_dev else None,
     openapi_url="/openapi.json" if _is_dev else None,
 )
+
+# Middleware order matters: Starlette runs the LAST-added middleware OUTERMOST.
+# Install hardening FIRST (inner), then CORS LAST (outer) so that the hardening
+# layer's early responses — 429 rate-limit, 413 body-too-large, and the clean 500
+# from its exception guard — still pass back out through CORS and receive the
+# Access-Control-Allow-Origin headers a browser needs to read them.
+#
+# Hardening: request-id + structured access logs, per-IP rate limiting, body-size
+# guard, security headers, leak-free 500 handler. All toggled in config; invisible
+# to the test suite.
+middleware.install(app)
 
 app.add_middleware(
     CORSMiddleware,

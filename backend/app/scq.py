@@ -82,6 +82,143 @@ def coupled_spectrum(f1_ghz: float, f2_ghz: float, anh1_mhz: float, anh2_mhz: fl
     }
 
 
+# ── QUBIT ZOO — multi-family spectra via scqubits orchestration ─────────────────
+# Each family routes to the scqubits class that actually models it (exact
+# diagonalization). Families scqubits has no circuit for (bosonic encodings,
+# semiconductor qubits) are marked supported=False with the NEAREST model + a paper
+# reference — never a fabricated spectrum (no-fake-data). `params` are sensible
+# defaults; the caller may override any of them. `solver` is read by qubit_spectrum.
+QUBIT_FAMILIES: list[dict] = [
+    {"id": "fixed_transmon", "label": "Fixed-frequency Transmon", "solver": "Transmon",
+     "params": {"EJ": 15.0, "EC": 0.3, "ng": 0.0}, "tunable": False,
+     "refs": ["Koch 2007"], "note": "The workhorse: charge-insensitive Cooper-pair box (EJ/EC≫1)."},
+    {"id": "tunable_transmon", "label": "Tunable (SQUID) Transmon", "solver": "TunableTransmon",
+     "params": {"EJmax": 30.0, "EC": 0.3, "d": 0.1, "flux": 0.0, "ng": 0.0}, "tunable": True,
+     "refs": ["Koch 2007", "Krantz 2019"], "note": "SQUID-tuned EJ(Φ); frequency-tunable, flux-noise sensitive."},
+    {"id": "xmon", "label": "Xmon", "solver": "Transmon",
+     "params": {"EJ": 18.0, "EC": 0.28, "ng": 0.0}, "tunable": False,
+     "refs": ["Barends 2013"], "note": "Cross-shaped planar transmon — same Hamiltonian, optimized geometry/coupling."},
+    {"id": "gatemon", "label": "Gatemon", "solver": "Transmon",
+     "params": {"EJ": 12.0, "EC": 0.3, "ng": 0.0}, "tunable": True,
+     "refs": ["Larsen 2015", "de Lange 2015"], "note": "Semiconductor-nanowire JJ: EJ tuned by a gate voltage (modeled here as a transmon at the set EJ)."},
+    {"id": "charge_qubit", "label": "Charge Qubit (Cooper-pair box)", "solver": "Transmon",
+     "params": {"EJ": 2.0, "EC": 4.0, "ng": 0.5}, "tunable": False,
+     "refs": ["Nakamura 1999", "Bouchiat 1998"], "note": "Transmon's ancestor in the EJ/EC≲1 regime — charge-sensitive (note ng)."},
+    {"id": "fluxonium", "label": "Fluxonium", "solver": "Fluxonium",
+     "params": {"EJ": 4.0, "EC": 1.0, "EL": 0.9, "flux": 0.5}, "tunable": True,
+     "refs": ["Manucharyan 2009"], "note": "JJ shunted by a large superinductor; very low f01 at the half-flux sweet spot."},
+    {"id": "heavy_fluxonium", "label": "Heavy Fluxonium", "solver": "Fluxonium",
+     "params": {"EJ": 5.0, "EC": 0.5, "EL": 0.3, "flux": 0.5}, "tunable": True,
+     "refs": ["Earnest 2018", "Lin 2018"], "note": "Fluxonium with small EC/EL → sub-GHz f01, very long T1."},
+    {"id": "cshunt_flux_qubit", "label": "C-shunt Flux Qubit", "solver": "FluxQubit",
+     "params": {"flux": 0.5}, "tunable": True,
+     "refs": ["You 2007", "Yan 2016"], "note": "Capacitively-shunted 3-JJ flux qubit — flat sweet spot, long coherence."},
+    {"id": "flux_qubit", "label": "Flux Qubit (3-JJ persistent current)", "solver": "FluxQubit",
+     "params": {"flux": 0.5}, "tunable": True,
+     "refs": ["Mooij 1999", "Orlando 1999"], "note": "Persistent-current qubit; double-well at half flux."},
+    {"id": "zeropi", "label": "0–π Qubit", "solver": "ZeroPi",
+     "params": {"flux": 0.23}, "tunable": True,
+     "refs": ["Brooks 2013", "Gyenis 2021"], "note": "Intrinsically protected: disjoint wavefunctions suppress relaxation & dephasing."},
+    {"id": "cos2phi", "label": "cos2φ Qubit (Bifluxon-like)", "solver": "Cos2PhiQubit",
+     "params": {"flux": 0.5}, "tunable": True,
+     "refs": ["Smith 2020"], "note": "Pair-tunneling element → cos(2φ) potential; charge- and flux-protected."},
+    {"id": "kerr_cat", "label": "Kerr-Cat Qubit", "solver": "KerrOscillator",
+     "params": {"E_osc": 6.0, "K": 0.3}, "tunable": False,
+     "refs": ["Puri 2017", "Grimm 2020"], "note": "Bosonic: a Kerr nonlinear oscillator under two-photon drive stabilizes a cat manifold (the spectrum here is the bare Kerr ladder; the stabilized cat encoding/bias-preserving gates are not modeled)."},
+    # ── families with no circuit Hamiltonian in scqubits — honest pointers, no fake spectra ──
+    {"id": "gkp", "label": "GKP (grid-state) Qubit", "solver": "conceptual", "supported": False,
+     "tunable": False, "nearest": "bosonic oscillator", "refs": ["Gottesman 2001", "Campagne-Ibarcq 2020"],
+     "note": "An ENCODING of a logical qubit into oscillator grid states, not a static circuit — needs a driven/measured cavity model, out of scope for a spectrum solve."},
+    {"id": "andreev", "label": "Andreev (spin) Qubit", "solver": "conceptual", "supported": False,
+     "tunable": True, "nearest": "gatemon", "refs": ["Hays 2021"],
+     "note": "Andreev bound states in a weak link — a mesoscopic/spin model, not a lumped circuit; closest lumped proxy is the gatemon."},
+    {"id": "phase_qubit", "label": "Phase Qubit", "solver": "conceptual", "supported": False,
+     "tunable": True, "nearest": "current-biased junction (washboard)", "refs": ["Martinis 2002"],
+     "note": "Current-biased JJ in a tilted washboard — metastable-well levels; largely historical, superseded by the transmon."},
+]
+
+_FAMILY_BY_ID = {f["id"]: f for f in QUBIT_FAMILIES}
+
+
+def _level_metrics(ev: list[float]) -> dict:
+    """f01, f12 and a generic anharmonicity (f12−f01) from a level list [GHz]."""
+    ev = [float(x - ev[0]) for x in ev]
+    f01 = ev[1] - ev[0] if len(ev) > 1 else 0.0
+    f12 = ev[2] - ev[1] if len(ev) > 2 else 0.0
+    return {
+        "levels_GHz": [round(x, 5) for x in ev],
+        "f01_GHz": round(f01, 5),
+        "f12_GHz": round(f12, 5),
+        "anharmonicity_MHz": round((f12 - f01) * 1000.0, 1) if len(ev) > 2 else None,
+    }
+
+
+def _build_qubit(scq, fam: dict, p: dict, levels: int):
+    """Instantiate the scqubits object for a family with overridable params."""
+    import numpy as np
+    s = fam["solver"]
+    g = lambda k, d: float(p.get(k, fam["params"].get(k, d)))  # noqa: E731
+    if s == "Transmon":
+        return scq.Transmon(EJ=g("EJ", 15.0), EC=g("EC", 0.3), ng=g("ng", 0.0),
+                            ncut=31, truncated_dim=levels)
+    if s == "TunableTransmon":
+        return scq.TunableTransmon(EJmax=g("EJmax", 30.0), EC=g("EC", 0.3), d=g("d", 0.1),
+                                   flux=g("flux", 0.0), ng=g("ng", 0.0), ncut=31, truncated_dim=levels)
+    if s == "Fluxonium":
+        return scq.Fluxonium(EJ=g("EJ", 4.0), EC=g("EC", 1.0), EL=g("EL", 0.9),
+                             flux=g("flux", 0.5), cutoff=110, truncated_dim=levels)
+    if s == "FluxQubit":
+        # symmetric 3-JJ flux qubit (α-junction = 0.8) — standard scqubits example params
+        ej, ecj, ecg = 35.0, 1.0, 50.0
+        return scq.FluxQubit(EJ1=ej, EJ2=ej, EJ3=0.8 * ej, ECJ1=ecj, ECJ2=ecj, ECJ3=ecj / 0.8,
+                             ECg1=ecg, ECg2=ecg, ng1=0.0, ng2=0.0, flux=g("flux", 0.5),
+                             ncut=10, truncated_dim=levels)
+    if s == "ZeroPi":
+        grid = scq.Grid1d(-6 * np.pi, 6 * np.pi, 200)
+        return scq.ZeroPi(grid=grid, EJ=10.0, EL=0.04, ECJ=20.0, EC=0.04,
+                          ng=g("ng", 0.1), flux=g("flux", 0.23), ncut=30, truncated_dim=levels)
+    if s == "Cos2PhiQubit":
+        return scq.Cos2PhiQubit(EJ=15.0, ECJ=2.0, EL=1.0, EC=0.04, dL=0.6, dCJ=0.0, dEJ=0.0,
+                                flux=g("flux", 0.5), ng=g("ng", 0.0), ncut=7,
+                                zeta_cut=30, phi_cut=7, truncated_dim=levels)
+    if s == "KerrOscillator":
+        return scq.KerrOscillator(E_osc=g("E_osc", 6.0), K=g("K", 0.3), truncated_dim=levels)
+    raise ValueError(f"no scqubits builder for solver {s}")
+
+
+def qubit_spectrum(family_id: str, params: dict | None = None, levels: int = 6) -> dict:
+    """Exact spectrum of a named qubit family via scqubits (the Qubit Zoo). Routes the
+    family to its scqubits class, returns the lowest `levels` energy levels [GHz],
+    f01/anharmonicity, the params used, references and an honest note. Conceptual
+    families (GKP, Andreev, phase) return supported=False with the nearest model —
+    never a fabricated spectrum. Any solver error degrades to supported=False."""
+    fam = _FAMILY_BY_ID.get(family_id)
+    if fam is None:
+        return {"family": family_id, "supported": False, "error": "unknown family",
+                "method": "qubit zoo"}
+    base = {"family": fam["id"], "label": fam["label"], "solver": fam["solver"],
+            "tunable": fam.get("tunable", False), "refs": fam.get("refs", []),
+            "note": fam.get("note", "")}
+    if fam.get("supported") is False or fam["solver"] == "conceptual":
+        return {**base, "supported": False, "nearest_model": fam.get("nearest"),
+                "method": "conceptual — no circuit Hamiltonian (see nearest model & refs)"}
+    if not available():
+        return {**base, "supported": False, "error": "scqubits not installed",
+                "method": "qubit zoo (scqubits unavailable)"}
+    try:
+        import scqubits as scq
+        n = int(max(3, min(levels, 8)))
+        obj = _build_qubit(scq, fam, params or {}, n)
+        ev = list(obj.eigenvals(evals_count=n))
+        params_used = {k: float(params.get(k, v)) for k, v in fam["params"].items()} if params else dict(fam["params"])
+        return {**base, "supported": True, **_level_metrics(ev),
+                "params_used": params_used,
+                "method": f"scqubits {fam['solver']} exact diagonalization"}
+    except Exception as exc:  # noqa: BLE001 — exotic constructors vary across scqubits versions
+        return {**base, "supported": False, "error": str(exc)[:120],
+                "method": f"scqubits {fam['solver']} — solve failed (graceful)"}
+
+
 def transmon_levels_scq(ej: float, ec: float, ng: float = 0.0, ncut: int = 31,
                         levels: int = 4) -> list[float]:
     """scqubits transmon spectrum [GHz] relative to ground — for benchmarking

@@ -40,7 +40,7 @@ import { api } from "@/lib/api";
 import { CHART, axisProps, ChartTooltip } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
 
-type Tab = "validation" | "frequency" | "eigenmode" | "eigenmode_fullwave" | "capacitance" | "field_solver" | "lom" | "circuit_graph" | "coupling" | "crosstalk" | "hamiltonian" | "sweep" | "mesh" | "epr" | "scattering" | "kinetic_inductance" | "feedback" | "gate_fidelity" | "two_qubit_gate" | "frequency_collisions" | "decoherence" | "flux_spectrum" | "coupled_spectrum" | "readout" | "qec";
+type Tab = "validation" | "frequency" | "eigenmode" | "eigenmode_fullwave" | "capacitance" | "field_solver" | "lom" | "circuit_graph" | "coupling" | "crosstalk" | "hamiltonian" | "sweep" | "mesh" | "epr" | "scattering" | "kinetic_inductance" | "feedback" | "gate_fidelity" | "two_qubit_gate" | "frequency_collisions" | "decoherence" | "flux_spectrum" | "coupled_spectrum" | "readout" | "qec" | "packaging" | "surface_participation" | "qubit_family" | "cryogenic";
 
 const TABS: { value: Tab; label: string }[] = [
   { value: "validation", label: "Validation" },
@@ -56,18 +56,22 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "hamiltonian", label: "Hamiltonian" },
   { value: "flux_spectrum", label: "Flux Spectroscopy" },
   { value: "coupled_spectrum", label: "Coupled Spectrum (Exact)" },
+  { value: "qubit_family", label: "Qubit Zoo" },
   { value: "epr", label: "EPR" },
   { value: "decoherence", label: "Decoherence (T1/T2)" },
+  { value: "surface_participation", label: "Surface Participation → T1" },
   { value: "gate_fidelity", label: "Gate Fidelity" },
   { value: "two_qubit_gate", label: "2Q Gate (Time-Domain)" },
   { value: "frequency_collisions", label: "Freq. Collisions / Yield" },
   { value: "readout", label: "Readout Fidelity" }, // distinct from "Readout S21" (the S-param sweep)
   { value: "qec", label: "Error Correction" },
+  { value: "packaging", label: "Packaging / Box Modes" },
   { value: "scattering", label: "Scattering" },
   { value: "kinetic_inductance", label: "Kinetic L" },
   { value: "sweep", label: "Sweep" },
   { value: "mesh", label: "Mesh" },
   { value: "feedback", label: "Feedback" },
+  { value: "cryogenic", label: "Cryogenic Line" },
 ];
 
 // Group the 18 analyses into intuitive categories (the SC design-loop order) so
@@ -80,9 +84,9 @@ const TAB_BY_VALUE: Record<Tab, { value: Tab; label: string }> = Object.fromEntr
 const GROUPS: { label: string; hint: string; tabs: Tab[] }[] = [
   { label: "Layout", hint: "Geometry, field & extraction", tabs: ["validation", "capacitance", "field_solver", "circuit_graph", "mesh"] },
   { label: "Modes & RF", hint: "EM modes & scattering", tabs: ["eigenmode", "eigenmode_fullwave", "frequency", "scattering", "kinetic_inductance"] },
-  { label: "Quantum", hint: "Hamiltonian, coupling & flux", tabs: ["lom", "hamiltonian", "epr", "coupling", "flux_spectrum", "coupled_spectrum"] },
-  { label: "Performance", hint: "Coherence, gates, QEC & yield", tabs: ["decoherence", "gate_fidelity", "two_qubit_gate", "frequency_collisions", "readout", "qec", "crosstalk"] },
-  { label: "Tools", hint: "Sweeps & feedback", tabs: ["sweep", "feedback"] },
+  { label: "Quantum", hint: "Hamiltonian, coupling & flux", tabs: ["lom", "hamiltonian", "epr", "coupling", "flux_spectrum", "coupled_spectrum", "qubit_family"] },
+  { label: "Performance", hint: "Coherence, gates, QEC & yield", tabs: ["decoherence", "surface_participation", "gate_fidelity", "two_qubit_gate", "frequency_collisions", "readout", "qec", "crosstalk", "packaging"] },
+  { label: "Tools", hint: "Sweeps, feedback & cryogenics", tabs: ["sweep", "feedback", "cryogenic"] },
 ];
 
 // Dev guard: every analysis must live in exactly one group, or it becomes
@@ -120,8 +124,10 @@ export default function Simulation() {
     topology: "heavy_hex",
     n_qubits: 18,
     sigma_MHz: 15,
+    family: "fluxonium",
   });
   const [formats, setFormats] = useState<any>(null);
+  const [families, setFamilies] = useState<any[]>([]);
   // Qiskit Target export ("digital twin") modal state.
   const [qtOpen, setQtOpen] = useState(false);
   const [qtData, setQtData] = useState<any>(null);
@@ -134,6 +140,7 @@ export default function Simulation() {
   useEffect(() => {
     fetchProjects();
     api.getExportFormats().then(setFormats).catch(console.error);
+    api.getQubitFamilies().then((d: any) => setFamilies(d?.families || [])).catch(console.error);
   }, [fetchProjects]);
 
   const project = projects.find((p: any) => p.id === projectId);
@@ -287,7 +294,7 @@ export default function Simulation() {
       })()}
 
       {/* Per-tab parameter controls */}
-      <ParamBar tab={tab} params={params} setParams={setParams} onRun={run} running={running} />
+      <ParamBar tab={tab} params={params} setParams={setParams} onRun={run} running={running} families={families} />
 
       <AnimatePresence mode="wait">
         <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
@@ -334,6 +341,8 @@ export default function Simulation() {
               {tab === "hamiltonian" && <HamiltonianView res={res} />}
               {tab === "flux_spectrum" && <FluxSpectrumView res={res} />}
               {tab === "coupled_spectrum" && <CoupledSpectrumView res={res} />}
+              {tab === "qubit_family" && <QubitFamilyView res={res} />}
+              {tab === "cryogenic" && <CryogenicView res={res} />}
               {tab === "epr" && <EPRView res={res} />}
               {tab === "decoherence" && <DecoherenceView res={res} />}
               {tab === "gate_fidelity" && <GateFidelityView res={res} />}
@@ -341,6 +350,8 @@ export default function Simulation() {
               {tab === "frequency_collisions" && <FrequencyCollisionView res={res} />}
               {tab === "readout" && <ReadoutView res={res} />}
               {tab === "qec" && <QecView res={res} />}
+              {tab === "packaging" && <PackagingView res={res} />}
+              {tab === "surface_participation" && <SurfaceParticipationView res={res} />}
               {tab === "scattering" && <ScatteringView res={res} />}
               {tab === "kinetic_inductance" && <KineticLView res={res} />}
               {tab === "sweep" && <SweepView res={res} />}
@@ -533,11 +544,46 @@ function QiskitTargetModal({ open, onClose, data, loading }: {
   );
 }
 
-function ParamBar({ tab, params, setParams, onRun, running }: any) {
+function ParamBar({ tab, params, setParams, onRun, running, families }: any) {
   const set = (k: string, v: any) => setParams({ ...params, [k]: v });
+  const fam = (families || []).find((f: any) => f.id === (params.family ?? "fluxonium"));
   return (
     <Card inset>
       <CardContent className="flex flex-wrap items-center gap-6 py-3">
+        {tab === "cryogenic" && (
+          <>
+            <Mini label="Drive f (GHz)"><Input value={params.f_GHz ?? 5.0} onChange={(e) => set("f_GHz", Number(e.target.value))} /></Mini>
+            <Mini label="Input power (dBm)"><Input value={params.input_power_dBm ?? -20} onChange={(e) => set("input_power_dBm", Number(e.target.value))} /></Mini>
+            <Mini label="MXC atten (dB)"><Input value={params.mxc_attenuation_dB ?? 20} onChange={(e) => set("mxc_attenuation_dB", Number(e.target.value))} /></Mini>
+          </>
+        )}
+        {tab === "qubit_family" && (
+          <>
+            <Mini label="Family">
+              <Select
+                value={params.family ?? "fluxonium"}
+                onChange={(e) => setParams({
+                  ...params, family: e.target.value,
+                  EJ: undefined, EC: undefined, EL: undefined, flux: undefined,
+                  EJmax: undefined, d: undefined, E_osc: undefined, K: undefined,
+                })}
+              >
+                {(families || []).map((f: any) => (
+                  <option key={f.id} value={f.id}>{f.label}{f.supported ? "" : " (concept)"}</option>
+                ))}
+              </Select>
+            </Mini>
+            {fam?.tunable && fam?.supported && (
+              <Mini label="Flux Φ/Φ₀"><Input value={params.flux ?? (fam.params?.flux ?? 0.5)} onChange={(e) => set("flux", Number(e.target.value))} /></Mini>
+            )}
+            {fam?.supported && fam?.params?.EJ != null && (
+              <Mini label="EJ (GHz)"><Input value={params.EJ ?? fam.params.EJ} onChange={(e) => set("EJ", Number(e.target.value))} /></Mini>
+            )}
+            {fam?.supported && fam?.params?.EC != null && (
+              <Mini label="EC (GHz)"><Input value={params.EC ?? fam.params.EC} onChange={(e) => set("EC", Number(e.target.value))} /></Mini>
+            )}
+          </>
+        )}
         {tab === "frequency" && (
           <Mini label="Res freq (GHz)"><Input value={params.resonator_freq_GHz} onChange={(e) => set("resonator_freq_GHz", Number(e.target.value))} /></Mini>
         )}
@@ -606,6 +652,15 @@ function ParamBar({ tab, params, setParams, onRun, running }: any) {
             <Mini label="Grid nodes"><Input value={params.max_nodes ?? 120000} onChange={(e) => set("max_nodes", Number(e.target.value))} /></Mini>
           </>
         )}
+        {tab === "surface_participation" && (
+          <Mini label="Substrate εr">
+            <Select value={params.eps_substrate ?? 11.7} onChange={(e) => set("eps_substrate", Number(e.target.value))}>
+              <option value={11.7}>Silicon (11.7)</option>
+              <option value={9.8}>Sapphire (9.8)</option>
+              <option value={3.8}>Quartz (3.8)</option>
+            </Select>
+          </Mini>
+        )}
         {tab === "two_qubit_gate" && (
           <>
             <Mini label="Gate">
@@ -639,6 +694,14 @@ function ParamBar({ tab, params, setParams, onRun, running }: any) {
           <>
             <Mini label="Photons n̄"><Input value={params.n_bar ?? 5} onChange={(e) => set("n_bar", Number(e.target.value))} /></Mini>
             <Mini label="Integration (ns)"><Input value={params.t_int_ns ?? 500} onChange={(e) => set("t_int_ns", Number(e.target.value))} /></Mini>
+          </>
+        )}
+        {tab === "packaging" && (
+          <>
+            <Mini label="Box a (mm)"><Input value={params.box_a_mm ?? ""} placeholder="auto" onChange={(e) => set("box_a_mm", e.target.value === "" ? undefined : Number(e.target.value))} /></Mini>
+            <Mini label="Box b (mm)"><Input value={params.box_b_mm ?? ""} placeholder="auto" onChange={(e) => set("box_b_mm", e.target.value === "" ? undefined : Number(e.target.value))} /></Mini>
+            <Mini label="Lid d (mm)"><Input value={params.box_d_mm ?? 4} onChange={(e) => set("box_d_mm", Number(e.target.value))} /></Mini>
+            <Mini label="Collision ± (MHz)"><Input value={params.collision_margin_MHz ?? 200} onChange={(e) => set("collision_margin_MHz", Number(e.target.value))} /></Mini>
           </>
         )}
         {tab === "qec" && (
@@ -1655,6 +1718,173 @@ function QecView({ res }: { res: any }) {
   );
 }
 
+function SurfaceParticipationView({ res }: { res: any }) {
+  if (!Array.isArray(res?.channel_T1_us)) {
+    return res?.method ? (
+      <div className="rounded-xl border border-line bg-surface-2 p-8 text-center text-sm text-fg-subtle">{res.method}</div>
+    ) : <NoData />;
+  }
+  const chanColor: Record<string, string> = {
+    substrate: "text-cyan", MA: "text-violet", MS: "text-primary", SA: "text-warning",
+  };
+  const chanName: Record<string, string> = {
+    substrate: "Bulk substrate", MA: "Metal–air", MS: "Metal–substrate", SA: "Substrate–air",
+  };
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label="Dielectric T₁" value={res.T1_dielectric_us ?? "—"} unit="µs" tone="primary" />
+        <MetricCard label="Dielectric Q" value={res.Q_dielectric != null ? (num(res.Q_dielectric) / 1e6).toFixed(2) : "—"} unit="M" tone="cyan" />
+        <MetricCard label="Substrate participation" value={(num(res.p_substrate) * 100).toFixed(1)} unit="%" tone="violet" />
+        <MetricCard label="Limiting channel" value={chanName[res.limiting_channel] ?? res.limiting_channel ?? "—"} tone="warning" />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 text-2xs text-fg-subtle">
+        <Badge tone="primary">3-D field-derived</Badge>
+        <span>qubit {res.energized} · f₀₁ {res.f01_GHz} GHz · grid {num(res.grid?.nodes).toLocaleString()} nodes</span>
+      </div>
+
+      <Card>
+        <div className="px-5 pt-5 text-sm font-semibold">
+          Loss channels <span className="font-normal text-fg-subtle">· 1/Q = Σ pᵢ·tanδᵢ — sorted by tightest T₁</span>
+        </div>
+        <CardContent className="overflow-auto pt-4">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-line text-left text-2xs uppercase tracking-wider text-fg-subtle">
+                <th className="p-2">Channel</th><th className="p-2">Participation p</th>
+                <th className="p-2">tan δ</th><th className="p-2">Q limit</th><th className="p-2">T₁ limit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {res.channel_T1_us.map((c: any, i: number) => (
+                <tr key={i} className="border-b border-line/50 last:border-0">
+                  <td className={cn("p-2 font-semibold", chanColor[c.channel] || "text-fg")}>{chanName[c.channel] ?? c.channel}</td>
+                  <td className="p-2 font-mono text-xs">{sci(c.participation)}</td>
+                  <td className="p-2 font-mono text-xs text-fg-muted">{sci(c.tan_delta)}</td>
+                  <td className="p-2 font-mono text-xs">{c.Q_limit != null ? num(c.Q_limit).toLocaleString() : "—"}</td>
+                  <td className={cn("p-2 font-mono text-xs", i === 0 ? "text-warning font-semibold" : "text-fg-muted")}>
+                    {c.T1_us != null ? `${num(c.T1_us).toLocaleString()} µs` : "∞"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-3 max-w-2xl text-2xs text-fg-subtle">
+            Surface layers store a tiny fraction of the field but dominate loss — their tan δ is ~10⁴× the bulk
+            substrate's, so a 10⁻⁵ participation rivals the 0.8+ bulk. Surface participations are 3-D-grid estimates
+            (the true layers are nm-thin and the field peaks at pad edges); the bulk substrate value is robust.
+          </p>
+        </CardContent>
+      </Card>
+      <p className="text-2xs text-fg-subtle">{res.method}</p>
+    </div>
+  );
+}
+
+function PackagingView({ res }: { res: any }) {
+  if (!Array.isArray(res?.box_modes)) return <NoData />;
+  const box = res.box_mm || {};
+  const collided = new Set((res.collisions || []).map((c: any) => c.package_mode));
+  const hasCollisions = (res.n_collisions ?? 0) > 0;
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label="Lowest box mode" value={res.lowest_mode_GHz ?? "—"} unit="GHz" tone="primary" />
+        <MetricCard label="Modes (≤ band)" value={res.n_modes ?? 0} tone="cyan" />
+        <MetricCard label="Chip↔package collisions" value={res.n_collisions ?? 0} tone={hasCollisions ? "danger" : "success"} />
+        <MetricCard
+          label="Worst radiative T₁"
+          value={res.purcell_t1_us != null ? num(res.purcell_t1_us).toLocaleString() : "∞"}
+          unit={res.purcell_t1_us != null ? "µs" : undefined}
+          tone={res.purcell_t1_us != null && num(res.purcell_t1_us) < 200 ? "warning" : "success"}
+        />
+      </div>
+
+      {res.device_freqs_assumed && (
+        <div className="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning">
+          No qubit/readout frequencies could be extracted from this layout — the screen below uses
+          <span className="font-semibold"> reference values</span> (5.0 GHz qubit, 7.1 GHz readout), not your design.
+          Add transmons/resonators with geometry for a real collision screen.
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2 text-xs text-fg-subtle">
+        <Badge tone="violet">Enclosure {num(box.a).toFixed(1)} × {num(box.b).toFixed(1)} × {num(box.d).toFixed(1)} mm</Badge>
+        <Badge tone="neutral">εr {num(box.eps_r).toFixed(1)}</Badge>
+        <Badge tone="neutral">collision margin ±{res.collision_margin_MHz} MHz</Badge>
+      </div>
+
+      {Array.isArray(res.recommendations) && res.recommendations.length > 0 && (
+        <div className={cn("rounded-lg border px-3 py-2 text-xs", hasCollisions ? "border-warning/30 bg-warning/5 text-warning" : "border-success/30 bg-success/5 text-success")}>
+          <ul className="list-disc space-y-1 pl-4">
+            {res.recommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}
+          </ul>
+        </div>
+      )}
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Card>
+          <div className="px-5 pt-5 text-sm font-semibold">Package eigenmodes <span className="font-normal text-fg-subtle">· rectangular cavity TE/TM</span></div>
+          <CardContent className="overflow-auto pt-4">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-line text-left text-2xs uppercase tracking-wider text-fg-subtle">
+                  <th className="p-2">Mode</th><th className="p-2">Family</th><th className="p-2">f (GHz)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {res.box_modes.map((m: any, i: number) => (
+                  <tr key={i} className={cn("border-b border-line/50 last:border-0", collided.has(m.mode) && "bg-warning/5")}>
+                    <td className="p-2 font-semibold text-fg">{m.mode}{collided.has(m.mode) ? "  ⚠" : ""}</td>
+                    <td className="p-2 font-mono text-xs text-fg-muted">{m.family}</td>
+                    <td className="p-2 font-mono text-xs text-primary">{num(m.freq_GHz).toFixed(3)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <div className="px-5 pt-5 text-sm font-semibold">{hasCollisions ? "Collisions with on-chip frequencies" : "On-chip frequencies (no collisions)"}</div>
+          <CardContent className="overflow-auto pt-4">
+            {hasCollisions ? (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-line text-left text-2xs uppercase tracking-wider text-fg-subtle">
+                    <th className="p-2">Box mode</th><th className="p-2">Device</th><th className="p-2">Detuning</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {res.collisions.map((c: any, i: number) => (
+                    <tr key={i} className="border-b border-line/50 last:border-0">
+                      <td className="p-2 font-mono text-xs">{c.family} {c.package_mode} · {num(c.mode_freq_GHz).toFixed(2)} GHz</td>
+                      <td className="p-2 font-mono text-xs">{c.device} <span className="text-fg-subtle">({c.device_kind})</span></td>
+                      <td className="p-2 font-mono text-xs text-warning">{c.detuning_MHz} MHz</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="space-y-1.5">
+                {(res.device_freqs || []).map((d: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between rounded-lg border border-line bg-surface-2 px-3 py-2 text-xs">
+                    <span className="font-medium text-fg">{d.label} <span className="text-fg-subtle">({d.kind})</span></span>
+                    <span className="font-mono text-fg-muted">{num(d.freq_GHz).toFixed(3)} GHz</span>
+                  </div>
+                ))}
+                <p className="pt-1 text-2xs text-fg-subtle">All package modes are clear of the operating band by more than the collision margin.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+      <p className="text-2xs text-fg-subtle">{res.method}</p>
+    </div>
+  );
+}
+
 function FeedbackView({ res }: { res: any }) {
   if (!Array.isArray(res?.comparison)) return <NoData />;
   const hasMeasured = res.mean_abs_delta_f01_MHz != null;
@@ -1755,6 +1985,142 @@ function FluxSpectrumView({ res }: { res: any }) {
           </ResponsiveContainer>
         </CardContent>
       </Card>
+      <p className="text-2xs text-fg-subtle">{res.method}</p>
+    </div>
+  );
+}
+
+function CryogenicView({ res }: { res: any }) {
+  if (!Array.isArray(res?.stages)) return <NoData />;
+  const nbar = num(res.device_photons_nbar);
+  const fmtW = (w: number) => {
+    if (!w) return "0";
+    const u = ["W", "mW", "µW", "nW", "pW"];
+    let i = 0; let v = w;
+    while (Math.abs(v) < 1 && i < u.length - 1) { v *= 1000; i++; }
+    return `${v.toFixed(1)} ${u[i]}`;
+  };
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label="Thermal photons n̄" value={nbar.toFixed(4)} tone={nbar < 0.05 ? "success" : "warning"} />
+        <MetricCard label="Total attenuation" value={res.total_attenuation_dB} unit="dB" tone="primary" />
+        <MetricCard label="Signal at device" value={res.signal_at_device_dBm} unit="dBm" tone="cyan" />
+        <MetricCard label="Device temp" value={(num(res.device_temp_K) * 1000).toFixed(0)} unit="mK" tone="violet" />
+      </div>
+
+      {Array.isArray(res.recommendations) && res.recommendations.length > 0 && (
+        <div className={cn("rounded-lg border px-3 py-2 text-xs", nbar < 0.05 && !res.stages.some((s: any) => s.over_budget) ? "border-success/30 bg-success/5 text-success" : "border-warning/30 bg-warning/5 text-warning")}>
+          <ul className="list-disc space-y-1 pl-4">
+            {res.recommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}
+          </ul>
+        </div>
+      )}
+
+      <Card>
+        <div className="px-5 pt-5 text-sm font-semibold">Fridge stages <span className="font-normal text-fg-subtle">· warmest → coldest (drive line)</span></div>
+        <CardContent className="overflow-auto pt-4">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead>
+              <tr className="border-b border-line text-left text-2xs uppercase tracking-wider text-fg-subtle">
+                <th className="p-2">Stage</th><th className="p-2 text-right">Temp</th>
+                <th className="p-2 text-right">Atten</th><th className="p-2 text-right">Heat load</th>
+                <th className="p-2 text-right">Cooling budget</th><th className="p-2 text-right">Headroom</th>
+              </tr>
+            </thead>
+            <tbody>
+              {res.stages.map((s: any, i: number) => (
+                <tr key={i} className={cn("border-b border-line/50 last:border-0", s.over_budget && "bg-warning/5")}>
+                  <td className="p-2 font-medium text-fg">{s.name}{s.over_budget ? "  ⚠" : ""}</td>
+                  <td className="p-2 text-right font-mono tabular-nums">{s.temp_K >= 1 ? `${s.temp_K} K` : `${(s.temp_K * 1000).toFixed(0)} mK`}</td>
+                  <td className="p-2 text-right font-mono tabular-nums">{s.attenuation_dB} dB</td>
+                  <td className="p-2 text-right font-mono tabular-nums">{fmtW(s.heat_W)}</td>
+                  <td className="p-2 text-right font-mono tabular-nums text-fg-subtle">{fmtW(s.cooling_W)}</td>
+                  <td className={cn("p-2 text-right font-mono tabular-nums", s.over_budget ? "text-warning" : "text-success")}>
+                    {s.headroom == null ? "—" : `${num(s.headroom) >= 100 ? Math.round(num(s.headroom)) : num(s.headroom).toFixed(1)}×`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-3 max-w-2xl text-2xs text-fg-subtle">
+            Each attenuator both sets the drive level and thermalises the line. The coldest (MXC) attenuator dominates the residual photon number n̄ — the figure of merit (want ≪ 1). Headroom = cooling budget ÷ heat load.
+          </p>
+        </CardContent>
+      </Card>
+      <p className="text-2xs text-fg-subtle">{res.method}</p>
+    </div>
+  );
+}
+
+function QubitFamilyView({ res }: { res: any }) {
+  if (!res?.family) return <NoData />;
+  const refs: string[] = res.refs || [];
+  // Conceptual / unsupported families: honest "not modeled" card, never fake numbers.
+  if (!res.supported) {
+    return (
+      <div className="space-y-4">
+        <Card>
+          <CardContent className="space-y-3 p-5">
+            <div className="flex items-center gap-2">
+              <h3 className="font-display text-lg font-semibold text-fg">{res.label || res.family}</h3>
+              <Badge tone="warning">not a circuit spectrum</Badge>
+            </div>
+            <p className="text-sm leading-relaxed text-fg-muted">{res.note}</p>
+            {res.nearest_model && (
+              <p className="text-xs text-fg-subtle">Closest lumped-circuit proxy: <span className="font-medium text-fg">{res.nearest_model}</span>.</p>
+            )}
+            {res.error && <p className="text-2xs text-warning">Solver note: {res.error}</p>}
+            {refs.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {refs.map((r) => <Badge key={r} tone="neutral">{r}</Badge>)}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <p className="text-2xs text-fg-subtle">{res.method}</p>
+      </div>
+    );
+  }
+  const levels: number[] = Array.isArray(res.levels_GHz) ? res.levels_GHz : [];
+  const max = levels.length ? Math.max(...levels.map(Math.abs), 1) : 1;
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label="f₀₁" value={num(res.f01_GHz).toFixed(4)} unit="GHz" tone="primary" />
+        <MetricCard label="f₁₂" value={num(res.f12_GHz).toFixed(4)} unit="GHz" tone="cyan" />
+        <MetricCard label="Anharmonicity" value={res.anharmonicity_MHz == null ? "—" : num(res.anharmonicity_MHz).toFixed(0)} unit="MHz" tone="violet" />
+        <MetricCard label="Levels" value={levels.length} tone="neutral" />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone="success">scqubits · {res.solver}</Badge>
+        {res.tunable && <Badge tone="cyan">flux-tunable</Badge>}
+        {refs.map((r: string) => <Badge key={r} tone="neutral">{r}</Badge>)}
+      </div>
+      {res.note && <p className="text-xs leading-relaxed text-fg-muted">{res.note}</p>}
+
+      <Card>
+        <div className="px-5 pt-5 text-sm font-semibold">
+          Energy spectrum <span className="font-normal text-fg-subtle">· {res.label} — relative to ground, exact diagonalization</span>
+        </div>
+        <CardContent className="space-y-1.5 pt-4">
+          {levels.map((lv, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <span className="w-10 shrink-0 font-mono text-2xs text-fg-subtle">E{i}</span>
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-surface-3">
+                <div className="h-full rounded-full bg-primary/70" style={{ width: `${Math.min(100, (Math.abs(lv) / max) * 100)}%` }} />
+              </div>
+              <span className="w-24 shrink-0 text-right font-mono text-2xs tabular-nums text-fg">{num(lv).toFixed(4)} GHz</span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+      {res.params_used && (
+        <p className="text-2xs text-fg-subtle">
+          Params: {Object.entries(res.params_used).map(([k, v]) => `${k}=${v}`).join(" · ")}
+        </p>
+      )}
       <p className="text-2xs text-fg-subtle">{res.method}</p>
     </div>
   );

@@ -45,13 +45,19 @@ import {
   Download,
   PanelRight,
   Share2,
+  CopyPlus,
+  Magnet,
+  Keyboard,
+  LayoutGrid,
+  RotateCcw,
+  Gauge,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import QuantumNode, { type QuantumNodeData } from "@/designer/QuantumNode";
 import { Button, IconButton } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { StatusDot } from "@/components/ui/Badge";
-import { Input, Field, Slider } from "@/components/ui/Form";
+import { Input, Slider } from "@/components/ui/Form";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -62,7 +68,58 @@ import { CHART } from "@/lib/chartTheme";
 import { toneChip, type Tone } from "@/lib/tones";
 import { api } from "@/lib/api";
 import { useDesignStore } from "@/store/useDesignStore";
+import { ecFromCapacitance, ejFromIc, f01 as f01Calc, anharmonicity } from "@/lib/quantum";
 import { cn } from "@/lib/utils";
+
+/** Parameter spec from the backend catalog (unit / range / typical / group). */
+interface ParamSpec {
+  unit: string;
+  min: number;
+  max: number;
+  typical: number;
+  group: string;
+}
+
+const QUBIT_PHYS_KINDS = new Set(["transmon", "squid", "fluxonium"]);
+
+/** Live qubit properties computed instantly client-side (mirrors backend physics).
+ *  Prefers the extracted geometry (CΣ + Ic); falls back to the design targets. */
+function qubitPhysics(
+  kind: string,
+  params: Record<string, number | string>,
+): { f01: number; anh: number; ecMHz: number; ej: number; ejec: number } | null {
+  if (!QUBIT_PHYS_KINDS.has(kind)) return null;
+  const n = (keys: string[]): number | null => {
+    for (const k of keys) {
+      const v = params[k];
+      const num = typeof v === "number" ? v : Number(v);
+      if (Number.isFinite(num)) return num;
+    }
+    return null;
+  };
+  let ec: number | null = null;
+  let ej: number | null = null;
+  const cs = n(["c_sigma_fF"]);
+  const ic = n(["ic_nA"]);
+  if (cs != null && ic != null) {
+    ec = ecFromCapacitance(cs);
+    ej = ejFromIc(ic);
+  } else {
+    const tf = n(["target_freq_GHz", "frequency_GHz"]);
+    if (tf == null) return null;
+    const ta = n(["anharmonicity_MHz"]) ?? -300;
+    ec = Math.max(Math.abs(ta) / 1000, 1e-3);
+    ej = (tf + ec) ** 2 / (8 * ec);
+  }
+  if (ec == null || ej == null || ec <= 0) return null;
+  return {
+    f01: f01Calc(ej, ec),
+    anh: anharmonicity(ec),
+    ecMHz: ec * 1000,
+    ej,
+    ejec: ej / ec,
+  };
+}
 
 const nodeTypes = { quantum: QuantumNode };
 
@@ -139,6 +196,55 @@ function buildInitial(COMPONENT_LIBRARY: ComponentDef[]): { nodes: Node[]; edges
   ];
   return { nodes, edges };
 }
+
+const cyanEdge = (id: string, source: string, target: string): Edge => ({
+  id, source, target, type: "smoothstep", animated: true,
+  style: { stroke: CHART.cyan, strokeWidth: 1.75 },
+});
+
+/** Starter layouts offered on a blank canvas — a quantum engineer rarely starts
+ *  from a single bare pad; these are the canonical building blocks. */
+const TEMPLATES: {
+  id: string; name: string; hint: string;
+  build: (lib: ComponentDef[]) => { nodes: Node[]; edges: Edge[] };
+}[] = [
+  {
+    id: "single", name: "Transmon + readout", hint: "One qubit, readout resonator & feedline",
+    build: (lib) => {
+      const byId = (id: string) => lib.find((c) => c.id === id);
+      const xmon = byId("xmon"); const res = byId("readout-resonator"); const feed = byId("feedline");
+      if (!xmon || !res || !feed) return { nodes: [], edges: [] };
+      const nodes = [
+        mk("q1", xmon, 120, 200, "Q1 · Xmon"),
+        mk("r1", res, 440, 200, "Readout R1"),
+        mk("feed", feed, 760, 200, "Feedline"),
+      ];
+      return { nodes, edges: [cyanEdge("e1", "q1", "r1"), cyanEdge("e2", "r1", "feed")] };
+    },
+  },
+  {
+    id: "pair", name: "2-qubit + coupler", hint: "Two qubits, a coupler & individual readouts",
+    build: (lib) => buildInitial(lib),
+  },
+  {
+    id: "ring", name: "4-qubit ring", hint: "Four transmons in a ring with couplers",
+    build: (lib) => {
+      const byId = (id: string) => lib.find((c) => c.id === id);
+      const xmon = byId("xmon"); const cpl = byId("capacitive-coupler");
+      if (!xmon || !cpl) return { nodes: [], edges: [] };
+      const pos = [[200, 120], [520, 120], [520, 440], [200, 440]];
+      const nodes: Node[] = pos.map(([x, y], i) => mk(`q${i + 1}`, xmon, x, y, `Q${i + 1} · Xmon`));
+      const cplPos = [[360, 120], [520, 280], [360, 440], [200, 280]];
+      cplPos.forEach(([x, y], i) => nodes.push(mk(`c${i + 1}`, cpl, x, y, `Coupler C${i + 1}`)));
+      const edges: Edge[] = [];
+      for (let i = 0; i < 4; i++) {
+        const a = `q${i + 1}`; const b = `q${((i + 1) % 4) + 1}`; const c = `c${i + 1}`;
+        edges.push(cyanEdge(`e${i}a`, a, c), cyanEdge(`e${i}b`, c, b));
+      }
+      return { nodes, edges };
+    },
+  },
+];
 
 /* ----- Canvas → self-contained runnable Python (mirrors backend codegen) -----
    The "Code" button emits a script that runs with only NumPy installed
@@ -347,11 +453,86 @@ const round2 = (x: number) => Math.round(x * 1e2) / 1e2;
 
 type LogLine = { k: "prompt" | "info" | "ok" | "warn"; t: string };
 
+const clampNum = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+/** One parameter row in the Inspector. With a backend spec it shows the unit, a
+ *  correctly-ranged slider (handles negatives like anharmonicity), a one-tap reset
+ *  to the typical value, and an out-of-range warning — the affordances a hardware
+ *  engineer expects. Without a spec it degrades to a plain, safe numeric input. */
+function ParamControl({ name, value, spec, onChange }: {
+  name: string;
+  value: number | string;
+  spec?: ParamSpec;
+  onChange: (v: number | string) => void;
+}) {
+  const isNum = typeof value === "number";
+  const label = name.replace(/_/g, " ");
+  const num = isNum ? (value as number) : NaN;
+  const out = isNum && spec && (num < spec.min || num > spec.max);
+  const showReset = isNum && spec && Math.abs(num - spec.typical) > 1e-9;
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <label className="text-xs font-medium capitalize text-fg-muted">
+          {label}
+          {spec?.unit && <span className="ml-1 normal-case text-fg-subtle">({spec.unit})</span>}
+        </label>
+        {showReset && (
+          <Tooltip content={`Reset to typical (${spec!.typical} ${spec!.unit})`}>
+            <button
+              type="button"
+              onClick={() => onChange(spec!.typical)}
+              className="flex items-center gap-0.5 rounded-md px-1 py-0.5 text-3xs font-medium text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg"
+            >
+              <RotateCcw className="h-2.5 w-2.5" /> typ
+            </button>
+          </Tooltip>
+        )}
+      </div>
+      <Input
+        value={String(value)}
+        className={cn("mt-1 h-8 text-xs tabular-nums", out && "border-warning/60")}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          onChange(e.target.value === "" || isNaN(n) ? e.target.value : n);
+        }}
+      />
+      {isNum && spec && (
+        <>
+          <div className="mt-1.5">
+            <Slider
+              value={clampNum(num, spec.min, spec.max)}
+              min={spec.min}
+              max={spec.max}
+              step={Math.max((spec.max - spec.min) / 100, 1e-4)}
+              onChange={(v) => onChange(Number(v.toFixed(3)))}
+            />
+          </div>
+          <div className="mt-0.5 flex justify-between text-3xs tabular-nums text-fg-subtle">
+            <span>{spec.min}</span>
+            <span>typ {spec.typical}</span>
+            <span>{spec.max}</span>
+          </div>
+          {out && (
+            <p className="mt-0.5 text-3xs text-warning">Outside the typical range — check fabricability.</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function DesignerCanvas() {
   const storeComps = useDataStore((s) => s.components);
   const storeProjects = useDataStore((s) => s.projects);
   const fetchProjects = useDataStore((s) => s.fetchProjects);
   const COMPONENT_LIBRARY = useMemo(() => [...(storeComps?.built_in || []), ...(storeComps?.custom || [])], [storeComps]);
+  // Backend parameter catalog: unit / range / typical / group per parameter — drives
+  // the Inspector's units, slider ranges and recommended values.
+  const paramSpecs = useMemo(
+    () => (storeComps?.parameter_specs ?? {}) as Record<string, ParamSpec>,
+    [storeComps],
+  );
   
   // A fresh "New Design" (?new=1) opens a clean canvas; otherwise show the demo layout.
   const [searchParams] = useSearchParams();
@@ -465,27 +646,32 @@ function DesignerCanvas() {
     load();
   }, [activeDesignId, projectId, isNew, COMPONENT_LIBRARY, setNodes, setEdges]);
 
-  // Periodic Auto-save
+  // Auto-save. Tracks a real save status (dirty → saving → saved) so the toolbar
+  // can show it honestly, and exposes saveNow() for the Cmd/Ctrl+S shortcut.
   const lastSavedRef = useRef(JSON.stringify({ nodes, edges }));
+  const saveNow = useCallback(async () => {
+    if (!activeDesignId) return;
+    const current = JSON.stringify({ nodes, edges });
+    if (current === lastSavedRef.current) { setSaveState("saved"); return; }
+    setSaveState("saving");
+    try {
+      const res = await api.saveDesign(activeDesignId, version, { nodes, edges });
+      setVersion(res.version);
+      lastSavedRef.current = current;
+      setSaveState("saved");
+    } catch (err) {
+      console.error("Save failed:", err);
+      setSaveState("dirty");
+    }
+  }, [activeDesignId, nodes, edges, version]);
+
   useEffect(() => {
     if (!activeDesignId || loading) return;
-    
-    const timer = setTimeout(async () => {
-      const current = JSON.stringify({ nodes, edges });
-      if (current === lastSavedRef.current) return;
-      
-      try {
-        const res = await api.saveDesign(activeDesignId, version, { nodes, edges });
-        setVersion(res.version);
-        lastSavedRef.current = current;
-        console.log("Design auto-saved", res.version);
-      } catch (err) {
-        console.error("Save failed:", err);
-      }
-    }, 3000);
-    
+    if (JSON.stringify({ nodes, edges }) === lastSavedRef.current) return;
+    setSaveState("dirty");
+    const timer = setTimeout(saveNow, 3000);
     return () => clearTimeout(timer);
-  }, [nodes, edges, activeDesignId, version, loading]);
+  }, [nodes, edges, activeDesignId, loading, saveNow]);
 
   // Publish the canvas to the shared store so the 3D View mirrors it.
   const publishGraph = useDesignStore((s) => s.setGraph);
@@ -505,6 +691,13 @@ function DesignerCanvas() {
   const [simRunning, setSimRunning] = useState(false);
   const [simDone, setSimDone] = useState(false);
   const [copied, setCopied] = useState(false);
+  // UX state: snap-to-grid for clean layouts, shortcut help, and a real save status.
+  const [snap, setSnap] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [saveState, setSaveState] = useState<"saved" | "saving" | "dirty" | "local">(
+    designId || projectId ? "saved" : "local",
+  );
+  const clipboard = useRef<Node[] | null>(null);
 
   const generatedCode = useMemo(() => generateMetalCode(nodes, edges), [nodes, edges]);
   const pushLog = (k: LogLine["k"], t: string) => setLogs((l) => [...l, { k, t }]);
@@ -633,6 +826,12 @@ function DesignerCanvas() {
 
   const selected = nodes.find((n) => n.id === selectedId) ?? null;
 
+  // Real design name for the toolbar status (no more hardcoded "Falcon-17").
+  const designName = useMemo(() => {
+    const p = storeProjects.find((pp) => pp.id === activeProjectId);
+    return p?.name || (activeDesignId ? "Untitled design" : "Untitled · local draft");
+  }, [storeProjects, activeProjectId, activeDesignId]);
+
   const updateParam = (key: string, value: number | string) => {
     setNodes((nds) =>
       nds.map((n) =>
@@ -644,9 +843,61 @@ function DesignerCanvas() {
   };
 
   const deleteSelected = () => {
+    if (!selectedId) return;
     setNodes((nds) => nds.filter((n) => n.id !== selectedId));
     setEdges((eds) => eds.filter((e) => e.source !== selectedId && e.target !== selectedId));
     setSelectedId(null);
+  };
+
+  // Duplicate the selected component (Cmd/Ctrl+D) — offset, fresh id, auto-selected.
+  const duplicateSelected = () => {
+    const src = nodes.find((n) => n.id === selectedId);
+    if (!src) return;
+    const id = `n${idRef.current++}`;
+    const clone: Node = {
+      ...src, id, selected: false,
+      position: { x: src.position.x + 40, y: src.position.y + 40 },
+      data: JSON.parse(JSON.stringify(src.data)),
+    };
+    setNodes((nds) => nds.concat(clone));
+    setSelectedId(id);
+    setInspectorOpen(true);
+  };
+
+  const copySelected = () => {
+    const src = nodes.find((n) => n.id === selectedId);
+    if (src) clipboard.current = [JSON.parse(JSON.stringify(src))];
+  };
+
+  const pasteClipboard = () => {
+    const buf = clipboard.current;
+    if (!buf || !buf.length) return;
+    const fresh = buf.map((n) => {
+      const id = `n${idRef.current++}`;
+      return { ...n, id, selected: false,
+        position: { x: n.position.x + 48, y: n.position.y + 48 },
+        data: JSON.parse(JSON.stringify(n.data)) } as Node;
+    });
+    setNodes((nds) => nds.concat(fresh));
+    setSelectedId(fresh[fresh.length - 1].id);
+    setInspectorOpen(true);
+  };
+
+  // Arrow-key nudge of the selected node (Shift = 1 px fine, else snap step).
+  const nudgeSelected = (dx: number, dy: number) => {
+    if (!selectedId) return;
+    setNodes((nds) => nds.map((n) =>
+      n.id === selectedId
+        ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } }
+        : n));
+  };
+
+  const applyTemplate = (build: (lib: ComponentDef[]) => { nodes: Node[]; edges: Edge[] }) => {
+    const t = build(COMPONENT_LIBRARY);
+    setNodes(t.nodes);
+    setEdges(t.edges);
+    setSelectedId(null);
+    fitView({ duration: 400 });
   };
 
   // record graph snapshots into the undo stack (debounced; skips our own restore)
@@ -675,21 +926,58 @@ function DesignerCanvas() {
   const undo = () => {
     if (!histPast.current.length) { pushLog("info", "Nothing to undo"); return; }
     histFuture.current.push(JSON.stringify({ nodes, edges }));
-    const snap = JSON.parse(histPast.current.pop()!);
+    const s = JSON.parse(histPast.current.pop()!);
     histApplying.current = true;
-    setNodes(snap.nodes || []); setEdges(snap.edges || []);
+    setNodes(s.nodes || []); setEdges(s.edges || []);
     setSelectedId(null); setHistTick((v) => v + 1);
     pushLog("info", "Undo");
   };
   const redo = () => {
     if (!histFuture.current.length) { pushLog("info", "Nothing to redo"); return; }
     histPast.current.push(JSON.stringify({ nodes, edges }));
-    const snap = JSON.parse(histFuture.current.pop()!);
+    const s = JSON.parse(histFuture.current.pop()!);
     histApplying.current = true;
-    setNodes(snap.nodes || []); setEdges(snap.edges || []);
+    setNodes(s.nodes || []); setEdges(s.edges || []);
     setSelectedId(null); setHistTick((v) => v + 1);
     pushLog("info", "Redo");
   };
+
+  // Keyboard shortcuts — the biggest productivity multiplier for a power user.
+  // A ref-to-latest-handler keeps a single listener while always seeing current
+  // state, and we never fire while the user is typing in an input/textarea.
+  const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyHandler.current = (e: KeyboardEvent) => {
+    const el = e.target as HTMLElement | null;
+    const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+    const mod = e.metaKey || e.ctrlKey;
+    if (e.key === "?" && !typing) { e.preventDefault(); setShortcutsOpen((o) => !o); return; }
+    if (typing) return;
+    const k = e.key.toLowerCase();
+    if (mod && k === "z") { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+    if (mod && k === "y") { e.preventDefault(); redo(); return; }
+    if (mod && k === "d") { e.preventDefault(); duplicateSelected(); return; }
+    if (mod && k === "s") { e.preventDefault(); saveNow(); return; }
+    if (mod && k === "c") { copySelected(); return; }
+    if (mod && k === "v") { e.preventDefault(); pasteClipboard(); return; }
+    if (mod) return;                                   // leave other Cmd/Ctrl combos to the browser
+    if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteSelected(); return; }
+    if (e.key === "Escape") { setSelectedId(null); setShortcutsOpen(false); return; }
+    if (k === "f") { fitView({ duration: 400 }); return; }
+    if (e.key.startsWith("Arrow") && selectedId) {
+      e.preventDefault();
+      const step = e.shiftKey ? 1 : (snap ? 16 : 8);
+      const d: Record<string, [number, number]> = {
+        ArrowUp: [0, -step], ArrowDown: [0, step], ArrowLeft: [-step, 0], ArrowRight: [step, 0],
+      };
+      const mv = d[e.key];
+      if (mv) nudgeSelected(mv[0], mv[1]);
+    }
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keyHandler.current(e);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const grouped = useMemo(() => {
     const q = search.toLowerCase();
@@ -769,6 +1057,9 @@ function DesignerCanvas() {
             fitView
             minZoom={0.1}
             maxZoom={4}
+            snapToGrid={snap}
+            snapGrid={[16, 16]}
+            deleteKeyCode={null}  // we handle Delete/Backspace ourselves (also clears connected edges)
             zoomOnScroll         // two-finger scroll/wheel = ZOOM (reliable on every trackpad — no pinch detection needed)
             zoomOnPinch          // pinch also zooms where the OS reports it
             zoomOnDoubleClick    // double-click to zoom in
@@ -786,20 +1077,73 @@ function DesignerCanvas() {
             />
           </ReactFlow>
 
+          {/* Quick-start templates — a blank canvas is intimidating; offer the
+              canonical building blocks. Wrapper is click-through so palette drops
+              still land on the canvas; only the card captures clicks. */}
+          {!loading && nodes.length === 0 && (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-6">
+              <div className="pointer-events-auto w-full max-w-md rounded-2xl border border-line bg-surface/95 p-6 shadow-pop">
+                <div className="flex items-center gap-2 text-sm font-semibold text-fg">
+                  <LayoutGrid className="h-4 w-4 text-primary" /> Start your chip
+                </div>
+                <p className="mt-1 text-xs text-fg-subtle">
+                  Drag components from the left, or start from a template:
+                </p>
+                <div className="mt-4 grid gap-2">
+                  {TEMPLATES.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => applyTemplate(t.build)}
+                      className="flex items-center justify-between rounded-xl border border-line bg-surface-2 px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:border-line-strong hover:shadow-card"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-fg">{t.name}</p>
+                        <p className="text-2xs text-fg-subtle">{t.hint}</p>
+                      </div>
+                      <ArrowUpRight className="h-4 w-4 shrink-0 text-fg-subtle" />
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-3 text-3xs text-fg-subtle">
+                  Tip: press <kbd className="rounded border border-line bg-surface-2 px-1 font-mono">?</kbd> any time for keyboard shortcuts.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Floating toolbar */}
           <div className="pointer-events-none absolute inset-x-3 top-3 flex items-center justify-between gap-2">
             <div className="glass pointer-events-auto flex items-center gap-1.5 rounded-xl border border-line p-1.5 shadow-pop">
-              <div className="flex items-center gap-2 px-2">
-                <StatusDot tone="success" pulse />
-                <span className="hidden text-xs font-medium text-fg sm:inline">Falcon-17 / main</span>
-              </div>
+              <Tooltip content={
+                saveState === "saving" ? "Saving…" :
+                saveState === "dirty" ? "Unsaved changes — autosaves shortly (⌘S to save now)" :
+                saveState === "local" ? "Local draft — open from a project to save to the cloud" :
+                "All changes saved"
+              }>
+                <div className="flex items-center gap-2 px-2">
+                  <StatusDot
+                    tone={saveState === "saved" ? "success" : saveState === "saving" ? "cyan" : saveState === "dirty" ? "warning" : "neutral"}
+                    pulse={saveState === "saving"}
+                  />
+                  <span className="hidden max-w-[140px] truncate text-xs font-medium text-fg sm:inline">
+                    {designName}
+                    <span className="ml-1.5 font-normal text-fg-subtle">
+                      {saveState === "saving" ? "saving…" : saveState === "dirty" ? "unsaved" : saveState === "local" ? "draft" : "saved"}
+                    </span>
+                  </span>
+                </div>
+              </Tooltip>
               <div className="h-5 w-px bg-line" />
-              <Tooltip content="Undo"><IconButton size="sm" onClick={undo} disabled={histPast.current.length === 0}><Undo2 className="h-4 w-4" /></IconButton></Tooltip>
-              <Tooltip content="Redo"><IconButton size="sm" onClick={redo} disabled={histFuture.current.length === 0}><Redo2 className="h-4 w-4" /></IconButton></Tooltip>
+              <Tooltip content="Undo (⌘Z)"><IconButton size="sm" onClick={undo} disabled={histPast.current.length === 0}><Undo2 className="h-4 w-4" /></IconButton></Tooltip>
+              <Tooltip content="Redo (⌘⇧Z)"><IconButton size="sm" onClick={redo} disabled={histFuture.current.length === 0}><Redo2 className="h-4 w-4" /></IconButton></Tooltip>
+              <div className="h-5 w-px bg-line" />
+              <Tooltip content="Duplicate (⌘D)"><span><IconButton size="sm" onClick={duplicateSelected} disabled={!selectedId}><CopyPlus className="h-4 w-4" /></IconButton></span></Tooltip>
+              <Tooltip content={snap ? "Snap to grid: on" : "Snap to grid: off"}><IconButton size="sm" active={snap} onClick={() => setSnap((v) => !v)}><Magnet className="h-4 w-4" /></IconButton></Tooltip>
               <div className="h-5 w-px bg-line" />
               <Tooltip content="Zoom in"><IconButton size="sm" onClick={() => zoomIn()}><ZoomIn className="h-4 w-4" /></IconButton></Tooltip>
               <Tooltip content="Zoom out"><IconButton size="sm" onClick={() => zoomOut()}><ZoomOut className="h-4 w-4" /></IconButton></Tooltip>
-              <Tooltip content="Fit view"><IconButton size="sm" onClick={() => fitView({ duration: 400 })}><Maximize2 className="h-4 w-4" /></IconButton></Tooltip>
+              <Tooltip content="Fit view (F)"><IconButton size="sm" onClick={() => fitView({ duration: 400 })}><Maximize2 className="h-4 w-4" /></IconButton></Tooltip>
+              <Tooltip content="Keyboard shortcuts (?)"><IconButton size="sm" onClick={() => setShortcutsOpen(true)}><Keyboard className="h-4 w-4" /></IconButton></Tooltip>
             </div>
 
             <div className="glass pointer-events-auto flex items-center gap-1.5 rounded-xl border border-line p-1.5 pl-3 shadow-pop">
@@ -918,34 +1262,65 @@ function DesignerCanvas() {
               <Badge tone={selData.color as any}>{selData.kind}</Badge>
             </div>
 
-            <div className="mt-5 space-y-4">
-              <p className="text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-                Parameters
-              </p>
-              {Object.entries(selData.params).map(([key, value]) => (
-                <div key={key}>
-                  <Field label={key.replace(/_/g, " ")}>
-                    <Input
-                      value={String(value)}
-                      onChange={(e) => {
-                        const num = Number(e.target.value);
-                        updateParam(key, e.target.value === "" || isNaN(num) ? e.target.value : num);
-                      }}
-                    />
-                  </Field>
-                  {typeof value === "number" && (
-                    <div className="mt-2">
-                      <Slider
-                        value={value}
-                        min={0}
-                        max={value === 0 ? 100 : Math.abs(value) * 2}
-                        step={Math.max(0.001, Math.abs(value) / 100)}
-                        onChange={(v) => updateParam(key, Number(v.toFixed(3)))}
-                      />
-                    </div>
-                  )}
+            {(() => {
+              const phys = qubitPhysics(selData.kind, selData.params);
+              if (!phys) return null;
+              const cards = [
+                { l: "f₀₁", v: phys.f01.toFixed(4), u: "GHz" },
+                { l: "α (anharm)", v: phys.anh.toFixed(1), u: "MHz" },
+                { l: "E_C", v: phys.ecMHz.toFixed(1), u: "MHz" },
+                { l: "E_J / E_C", v: phys.ejec.toFixed(1), u: "" },
+              ];
+              return (
+                <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-3">
+                  <div className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-primary">
+                    <Gauge className="h-3.5 w-3.5" /> Live properties
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {cards.map((m) => (
+                      <div key={m.l} className="rounded-lg bg-surface/70 px-2.5 py-1.5">
+                        <p className="text-3xs text-fg-subtle">{m.l}</p>
+                        <p className="font-mono text-sm font-semibold tabular-nums text-fg">
+                          {m.v}
+                          {m.u && <span className="ml-0.5 text-2xs font-normal text-fg-subtle">{m.u}</span>}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-3xs leading-relaxed text-fg-subtle">
+                    Instant estimate from this component's parameters — updates as you tune. Run a Simulation for the exact charge-basis solve.
+                  </p>
                 </div>
-              ))}
+              );
+            })()}
+
+            <div className="mt-5 space-y-5">
+              {(() => {
+                const groups = new Map<string, [string, number | string][]>();
+                for (const [k, v] of Object.entries(selData.params)) {
+                  const g = paramSpecs[k]?.group ?? "general";
+                  if (!groups.has(g)) groups.set(g, []);
+                  groups.get(g)!.push([k, v as number | string]);
+                }
+                return [...groups.entries()].map(([group, items]) => (
+                  <div key={group}>
+                    <p className="pb-2 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
+                      {group}
+                    </p>
+                    <div className="space-y-3.5">
+                      {items.map(([key, value]) => (
+                        <ParamControl
+                          key={key}
+                          name={key}
+                          value={value}
+                          spec={paramSpecs[key]}
+                          onChange={(v) => updateParam(key, v)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ));
+              })()}
             </div>
 
             <div className="mt-5 border-t border-line pt-4">
@@ -1059,6 +1434,38 @@ function DesignerCanvas() {
         <pre className="max-h-[55vh] overflow-auto rounded-xl border border-line bg-bg-deep/60 p-4 font-mono text-xs leading-relaxed text-fg-muted">
           {liveGeneratedCode || generatedCode}
         </pre>
+      </Modal>
+
+      {/* Keyboard shortcuts help */}
+      <Modal
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+        title="Keyboard shortcuts"
+        description="Design faster — most actions have a shortcut."
+        size="md"
+      >
+        <div className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+          {[
+            ["Undo", "⌘ / Ctrl + Z"],
+            ["Redo", "⌘ / Ctrl + ⇧ + Z"],
+            ["Duplicate component", "⌘ / Ctrl + D"],
+            ["Copy", "⌘ / Ctrl + C"],
+            ["Paste", "⌘ / Ctrl + V"],
+            ["Save now", "⌘ / Ctrl + S"],
+            ["Delete selected", "Delete / Backspace"],
+            ["Nudge (⇧ = 1 px)", "Arrow keys"],
+            ["Fit view", "F"],
+            ["Deselect", "Esc"],
+            ["This help", "?"],
+          ].map(([label, keys]) => (
+            <div key={label} className="flex items-center justify-between gap-3 border-b border-line/50 py-1.5 last:border-0">
+              <span className="text-sm text-fg-muted">{label}</span>
+              <kbd className="shrink-0 rounded-md border border-line bg-surface-2 px-2 py-0.5 font-mono text-2xs text-fg">
+                {keys}
+              </kbd>
+            </div>
+          ))}
+        </div>
       </Modal>
 
       <ShareDialog

@@ -806,6 +806,99 @@ def lattice_collision_yield(targets_mhz, edges, triplets, alpha_mhz: float,
     }
 
 
+# ── PACKAGING / BOX MODES (Pozar, Microwave Engineering §6.3; Wenner 2011) ──────
+# A superconducting chip sits inside a metal sample holder / package, which is a
+# 3-D rectangular cavity. Its electromagnetic eigenmodes (box / package modes) are
+# parasitic resonances: when one falls near a qubit or readout frequency it opens a
+# radiative loss channel (a Purcell-like T1 limit) and can hybridise with the chip
+# modes ("chip-package collision"). The cavity resonance for a rectangular box of
+# inner dimensions a×b×d filled with permittivity εr is (TE_mnl / TM_mnl share it):
+#
+#     f_mnl = (c / 2√εr) · √((m/a)² + (n/b)² + (l/d)²)
+#
+# Mode existence rules (Pozar Table 6.x): TM_mnl needs m≥1, n≥1, l≥0; TE_mnl needs
+# l≥1 and at most one of m,n = 0. The dominant (lowest) mode depends on the box
+# aspect ratio. All lengths in metres internally; the API takes mm. This is exact
+# analytic physics for an empty rectangular cavity — the standard package screen.
+
+def box_modes(a_mm: float, b_mm: float, d_mm: float, eps_r: float = 1.0,
+              max_freq_ghz: float = 25.0, max_modes: int = 24) -> list[dict]:
+    """Resonant box (package) modes of a rectangular metallic cavity a×b×d [mm],
+    filled with permittivity ``eps_r`` (1.0 = vacuum/He package). Returns the lowest
+    modes up to ``max_freq_ghz`` as ``[{mode, family, freq_GHz}]`` sorted by
+    frequency. TE and TM that share a frequency are reported once as family 'TE/TM'."""
+    a = max(a_mm, 1e-3) * 1e-3
+    b = max(b_mm, 1e-3) * 1e-3
+    d = max(d_mm, 1e-3) * 1e-3
+    pref = C_LIGHT / (2.0 * math.sqrt(max(eps_r, 1e-6)))
+    # bound the index search so it covers max_freq for typical mm boxes
+    def imax(L):
+        return max(1, int(math.ceil(2.0 * max_freq_ghz * 1e9 * L * math.sqrt(eps_r) / C_LIGHT)) + 1)
+    mx, ny, lz = imax(a), imax(b), imax(d)
+    seen: dict = {}
+    for m in range(0, mx + 1):
+        for n in range(0, ny + 1):
+            for l in range(0, lz + 1):
+                if m + n + l == 0:
+                    continue
+                # TM_mnl: m≥1, n≥1, l≥0 ; TE_mnl: l≥1, at most one of m,n is 0
+                is_tm = m >= 1 and n >= 1
+                is_te = l >= 1 and not (m == 0 and n == 0)
+                if not (is_tm or is_te):
+                    continue
+                f = pref * math.sqrt((m / a) ** 2 + (n / b) ** 2 + (l / d) ** 2) / 1e9
+                if f > max_freq_ghz:
+                    continue
+                family = "TE/TM" if (is_te and is_tm) else ("TM" if is_tm else "TE")
+                key = round(f, 5)
+                if key not in seen or len(seen[key]["fam"]) < len(family):
+                    seen[key] = {"mode": f"{m}{n}{l}", "fam": family, "f": f}
+    modes = sorted(seen.values(), key=lambda x: x["f"])[:max_modes]
+    return [{"mode": x["mode"], "family": x["fam"], "freq_GHz": round(x["f"], 4)} for x in modes]
+
+
+def package_collisions(modes: list[dict], device_freqs: list[dict],
+                       margin_mhz: float = 200.0) -> list[dict]:
+    """Flag package modes within ``margin_mhz`` of any device frequency (qubit f01 or
+    readout resonator). ``device_freqs`` = ``[{label, freq_GHz, kind}]``. Returns one
+    entry per (mode, device) clash with the detuning [MHz] — the chip↔package
+    frequency collisions a packaging engineer must design away."""
+    out = []
+    for md in modes:
+        for dev in device_freqs:
+            det = abs(md["freq_GHz"] - float(dev["freq_GHz"])) * 1000.0
+            if det <= margin_mhz:
+                out.append({
+                    "package_mode": md["mode"], "family": md["family"],
+                    "mode_freq_GHz": md["freq_GHz"],
+                    "device": dev.get("label", "?"), "device_kind": dev.get("kind", "qubit"),
+                    "device_freq_GHz": round(float(dev["freq_GHz"]), 4),
+                    "detuning_MHz": round(det, 1),
+                })
+    out.sort(key=lambda x: x["detuning_MHz"])
+    return out
+
+
+def package_purcell_t1(f_qubit_ghz: float, f_mode_ghz: float, q_package: float,
+                       coupling_mhz: float = 50.0) -> float:
+    """Order-of-magnitude radiative (Purcell) T1 limit [µs] from a qubit detuned by Δ
+    from a lossy package mode of quality factor Q_package: Γ ≈ (g/Δ)²·κ_pkg, with
+    κ_pkg = ω_mode/Q_package the mode linewidth and g the qubit↔mode coupling. The
+    package analogue of the readout-resonator Purcell limit (Houck 2008) — a
+    conservative screen for how close a box mode may sit before it kills T1."""
+    if q_package <= 0:
+        return math.inf                              # lossless mode → no radiative decay
+    # On resonance the perturbative (g/Δ)² Purcell form diverges (T1→0), which is
+    # unphysical — there the qubit and mode hybridise. Floor |Δ| at the coupling g
+    # so a near-resonant collision reports the SHORT (worst-case) T1 rather than ∞:
+    # a zero-detuning box mode is the most dangerous case, not the safest.
+    delta_mhz = (f_qubit_ghz - f_mode_ghz) * 1000.0
+    delta_mhz = math.copysign(max(abs(delta_mhz), max(coupling_mhz, 1e-6)), delta_mhz or 1.0)
+    kappa = (f_mode_ghz * 1e9) / q_package           # mode linewidth [Hz]
+    gamma = (coupling_mhz / delta_mhz) ** 2 * kappa  # [1/s]
+    return (1.0 / gamma) * 1e6 if gamma > 0 else math.inf
+
+
 def assign_lattice_frequencies(n: int, adjacency: dict, triplets, alpha_mhz: float,
                                palette_mhz, m: dict | None = None,
                                start: int | None = None) -> list:

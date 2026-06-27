@@ -34,6 +34,30 @@ def generate_design(body: dict):
     return designgen.generate(prompt)
 
 
+@router.post("/paper-to-design")
+def paper_to_design(body: dict):
+    """Paper -> design. Paste a paper's abstract / parameter table; the AI extracts the
+    device parameters (qubit count/type, frequency, anharmonicity, topology, readout)
+    and reproduces an editable {nodes, edges} design — same shape as /generate-design,
+    so the frontend reuses the create-project → save → open flow. Degrades to keyword
+    extraction (flagged via `source`) when no LLM key is configured."""
+    text = (body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(422, "Paper text is required")
+    text = text[:12000]                                # bound the prompt
+    wrapped = (
+        "The following is an excerpt from a superconducting-qubit research paper. "
+        "Extract the device it describes — number of qubits, qubit type, target 0->1 "
+        "frequency (GHz), anharmonicity (MHz), lattice/topology, and whether it has "
+        "readout resonators, couplers and Purcell filters — and reproduce it. Use a "
+        "sensible default for any value the text does not state.\n\nPAPER TEXT:\n" + text
+    )
+    res = designgen.generate(wrapped)
+    res["from_paper"] = True
+    res["ai_available"] = AI.is_configured()
+    return res
+
+
 def _build_context(project: Project, design: Design | None) -> dict:
     """Run the existing analyses to assemble the report bundle the AI reviews."""
     doc = (design.doc if design else None) or {"nodes": [], "edges": []}
@@ -75,9 +99,15 @@ def _build_context(project: Project, design: Design | None) -> dict:
 
 @router.get("/status")
 def ai_status():
-    """Whether the AI advisor is configured (drives the UI's enabled/disabled state).
-    The underlying model/provider is deliberately not exposed to the client."""
-    return {"configured": AI.is_configured()}
+    """AI configuration + which provider/model is in use. `configured` drives the
+    UI's enabled/disabled state; `providers` is the fallback order that will be
+    tried; `last_used` is the provider/model that served the most recent request
+    (owner visibility — the end-user chat never reveals the model)."""
+    return {
+        "configured": AI.is_configured(),
+        "providers": AI.provider_summary(),
+        "last_used": AI.LAST_USED,
+    }
 
 
 def _heuristic_report(ctx: dict) -> dict:

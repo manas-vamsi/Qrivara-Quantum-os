@@ -118,6 +118,24 @@ def is_configured() -> bool:
     return bool(settings.groq_api_key or settings.gemini_api_key or settings.openrouter_api_key)
 
 
+# Which provider/model actually served the most recent request — for OWNER
+# visibility (exposed via GET /ai/status and logged per call). Never surfaced to
+# end users (the assistant stays branded as "QRIVARA AI").
+LAST_USED: dict | None = None
+
+
+def _mark_used(provider: str, model: str) -> None:
+    global LAST_USED
+    LAST_USED = {"provider": provider, "model": model}
+    print(f"[ai] answered via {provider} / {model}", flush=True)
+
+
+def provider_summary() -> list[dict]:
+    """The configured providers and their model fallback order (no keys) — i.e.
+    exactly what will be tried, in order."""
+    return [{"provider": p["name"], "models": p["models"]} for p in _providers()]
+
+
 # ── system prompts ──────────────────────────────────────────────────────────
 _SYSTEM = """You are a senior superconducting-quantum-hardware design reviewer for QRIVARA, \
 an EDA tool for superconducting qubit chips. You are given the computed analysis reports for a \
@@ -214,9 +232,11 @@ def _complete(messages: list[dict], tools: list[dict] | None = None,
                             convo.append({"role": "tool", "tool_call_id": c.id,
                                           "content": json.dumps(result, default=str)[:8000]})
                         continue
+                    _mark_used(prov["name"], model)
                     return (m.content or "").strip()
                 # ran out of tool rounds — force a final answer without tools
                 resp = client.chat.completions.create(model=model, messages=convo, temperature=temperature)
+                _mark_used(prov["name"], model)
                 return (resp.choices[0].message.content or "").strip()
             except Exception as e:  # noqa: BLE001
                 msg = str(e).lower()
@@ -352,6 +372,7 @@ def _complete_stream(messages: list[dict], tools: list[dict] | None = None,
                             convo.append({"role": "tool", "tool_call_id": a["id"],
                                           "content": json.dumps(out, default=str)[:8000]})
                         continue
+                    _mark_used(prov["name"], model)
                     return                              # answer streamed (or empty) — done
                 return
             except Exception as e:  # noqa: BLE001

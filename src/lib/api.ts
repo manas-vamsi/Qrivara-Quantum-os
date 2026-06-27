@@ -167,6 +167,19 @@ export const api = {
     }
     return res.json();
   },
+  // Paper -> design: paste paper text, the AI extracts the device + builds it.
+  aiPaperToDesign: async (text: string) => {
+    const res = await fetch(`${API_BASE}/ai/paper-to-design`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.detail || "Paper-to-design failed");
+    }
+    return res.json();
+  },
   // Submit a job (backend returns 202 + a queued job), then poll the status
   // endpoint until the background worker finishes. Resolves to the completed
   // job (status "done" with .result, or "failed"/"canceled"). Callers can keep
@@ -289,6 +302,11 @@ export const api = {
     const res = await fetch(`${API_BASE}/export/formats`, { headers: authHeaders() });
     return res.json();
   },
+  // The Qubit Zoo: supported families + their solvers/defaults/refs (drives the picker).
+  getQubitFamilies: () => getJSON(`/qubit-families`),
+  // Materials Intelligence: predict dielectric-limited Q/T1 for a substrate+film choice.
+  predictCoherence: (substrate: string, conductor: string, f01: number) =>
+    getJSON(`/materials/predict?substrate=${substrate}&conductor=${conductor}&f01_GHz=${f01}`),
   // Exports are access-gated, so they need the auth header — `window.open` can't
   // send it. Fetch as a blob with auth, then trigger a client-side download.
   downloadDesignExport: (designId: string, format: string) =>

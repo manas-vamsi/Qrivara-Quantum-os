@@ -322,6 +322,173 @@ def solve_field(conductors: list[dict], eps_substrate: float = 11.7,
     }
 
 
+def surface_participation(
+    conductors: list[dict],
+    eps_substrate: float = 11.7,
+    max_nodes: int = 150_000,
+    default_gap: float = 30.0,
+    t_ma_nm: float = 3.0, eps_ma: float = 10.0,
+    t_ms_nm: float = 3.0, eps_ms: float = 10.0,
+    t_sa_nm: float = 3.0, eps_sa: float = 10.0,
+) -> dict | None:
+    """Geometry-derived surface- and bulk-dielectric participation ratios from the
+    solved 3-D field of the qubit mode (conductor 0 energised to 1 V, the rest
+    grounded — the transmon pad-to-ground mode).
+
+    Method (Wang et al., APL 107 162601 (2015); Wenner 2011): the participation of a
+    region is the fraction of the total electric energy U = ∫½ε|E|² dV that it stores.
+    Bulk substrate / vacuum participations are computed EXACTLY from the volumetric
+    energy on the grid. The three nm-thin lossy interface layers — metal–air (MA),
+    metal–substrate (MS) and substrate–air (SA) — are sub-grid, so their energy uses
+    the standard thin-layer surface integral with the field-continuity transforms:
+    tangential E is continuous, normal D = εE is continuous (so E_⊥ inside a layer of
+    permittivity ε_layer is (ε_host/ε_layer)·E_⊥,host). Returns participations + the
+    field-derived loss interfaces ready for the coherence budget.
+
+    HONEST SCOPE: surface participations on a µm-scale finite-volume grid are
+    resolution-limited estimates (the true layers are ~nm and the field concentrates
+    at pad edges) — the geometry SCALINGS and the relative ranking are meaningful; the
+    absolute values carry ~×2 uncertainty. The bulk substrate participation is robust.
+    """
+    if not conductors:
+        return None
+    gaps = [float(c.get("gap", default_gap) or default_gap) for c in conductors]
+    geo = _grid_geometry(conductors, gaps, max_nodes)
+    gx, gy, gz, nx, ny, nz, k0 = (geo["gx"], geo["gy"], geo["gz"],
+                                  geo["nx"], geo["ny"], geo["nz"], geo["k0"])
+    N = nx * ny * nz
+
+    def span(lo, hi, grid):
+        i_lo = int(np.searchsorted(grid, lo - 1e-6, side="left"))
+        i_hi = int(np.searchsorted(grid, hi + 1e-6, side="right")) - 1
+        return max(0, i_lo), min(len(grid) - 1, i_hi)
+
+    # surface-plane tags: ground (-2), etched gap / exposed substrate (-1), metal (k)
+    surf = np.full((ny, nx), -2, dtype=np.int32)
+    for c, g in zip(conductors, gaps):
+        ax0, ax1 = span(c["x"] - g, c["x"] + c["w"] + g, gx)
+        ay0, ay1 = span(c["y"] - g, c["y"] + c["h"] + g, gy)
+        sub = surf[ay0:ay1 + 1, ax0:ax1 + 1]
+        sub[sub == -2] = -1
+        surf[ay0:ay1 + 1, ax0:ax1 + 1] = sub
+    for kk, c in enumerate(conductors):
+        ax0, ax1 = span(c["x"], c["x"] + c["w"], gx)
+        ay0, ay1 = span(c["y"], c["y"] + c["h"], gy)
+        surf[ay0:ay1 + 1, ax0:ax1 + 1] = kk
+
+    tag = np.full(N, -1, dtype=np.int32)
+    tag[k0 * ny * nx:(k0 + 1) * ny * nx] = surf.ravel()
+
+    eps_vac, eps_sub = EPS0, eps_substrate * EPS0
+    eps_surf = 0.5 * (eps_substrate + 1.0) * EPS0
+    eps_inplane_k = np.where(np.abs(gz) < _TOL, eps_surf,
+                             np.where(gz > 0, eps_vac, eps_sub))
+    zmid = 0.5 * (gz[:-1] + gz[1:])
+    eps_zface_k = np.append(np.where(zmid > 0, eps_vac, eps_sub), eps_vac)
+
+    A = _assemble(gx * _UM, gy * _UM, gz * _UM, eps_inplane_k, eps_zface_k)
+    free = np.flatnonzero(tag == -1)
+    if free.size == 0:
+        return None
+    solve = _make_solver(A[free][:, free].tocsr())
+
+    # qubit mode: conductor 0 at 1 V, all other metal grounded
+    phi0 = np.zeros(N)
+    phi0[tag == 0] = 1.0
+    phi = phi0.copy()
+    phi[free] = solve(-(A @ phi0)[free])
+    P = phi.reshape(nz, ny, nx)
+
+    # E = -∇φ [V/m] on the node grid (coords → metres)
+    zc, yc, xc = gz * _UM, gy * _UM, gx * _UM
+    dPz, dPy, dPx = np.gradient(P, zc, yc, xc, edge_order=2)
+    Ex, Ey, Ez = -dPx, -dPy, -dPz
+    E2 = Ex * Ex + Ey * Ey + Ez * Ez                        # |E|² [V²/m²]
+
+    # dual-cell volumes V[k,j,i] = dz_k · dy_j · dx_i  [m³]
+    dx, dy, dz = _dual_widths(xc), _dual_widths(yc), _dual_widths(zc)
+    dV = dz[:, None, None] * dy[None, :, None] * dx[None, None, :]
+
+    # permittivity per node by region (z<0 substrate, z>0 vacuum, z=0 averaged)
+    eps_node = np.where(np.abs(gz) < _TOL, eps_surf,
+                        np.where(gz > 0, eps_vac, eps_sub))[:, None, None]
+    u = 0.5 * eps_node * E2                                  # energy density [J/m³]
+    # exclude metal nodes (inside conductors there is no field energy)
+    metal = (tag.reshape(nz, ny, nx) >= 0)
+    u = np.where(metal, 0.0, u)
+    energy = u * dV
+    U_total = float(energy.sum())
+    if U_total <= 0:
+        return None
+
+    # The z=0 interface plane's dual cell straddles both media (it used the averaged
+    # permittivity ε_surf), so split its energy 50/50 → the bulk fractions are clean
+    # and complete (p_substrate + p_vacuum = 1 exactly).
+    below = gz < -_TOL
+    above = gz > _TOL
+    at0 = np.abs(gz) < _TOL
+    e_below = float(energy[below].sum())
+    e_above = float(energy[above].sum())
+    e_iface = float(energy[at0].sum())
+    p_substrate = (e_below + 0.5 * e_iface) / U_total
+    p_vacuum = (e_above + 0.5 * e_iface) / U_total
+
+    # ── thin interface layers at the surface plane k0 ──────────────────────────
+    cell_area = (dy[:, None] * dx[None, :])                 # [m²] per (j,i) at surface
+    surf2 = tag.reshape(nz, ny, nx)[k0]                     # (ny,nx) surface tags
+    # Metal = energised/grounded pads (tag ≥ 0) AND the surrounding ground plane
+    # (tag −2): both carry MA (top oxide) and MS (buried) lossy layers, and the
+    # ground-plane edge bordering each etched gap is exactly where the return field
+    # peaks — excluding it under-counts MA/MS and overstates T1. Gap (−1) = exposed
+    # substrate → SA only.
+    is_metal = surf2 != -1
+    is_gap = surf2 == -1                                    # exposed substrate (SA)
+
+    # normal field just above / below the surface (one-sided differences)
+    dz_up = zc[k0 + 1] - zc[k0] if k0 + 1 < nz else 1.0
+    dz_dn = zc[k0] - zc[k0 - 1] if k0 - 1 >= 0 else 1.0
+    Ez_above = -(P[k0 + 1] - P[k0]) / dz_up if k0 + 1 < nz else np.zeros((ny, nx))
+    Ez_below = -(P[k0] - P[k0 - 1]) / dz_dn if k0 - 1 >= 0 else np.zeros((ny, nx))
+    Ex_s, Ey_s = Ex[k0], Ey[k0]                            # tangential at surface
+
+    t_ma, t_ms, t_sa = t_ma_nm * 1e-9, t_ms_nm * 1e-9, t_sa_nm * 1e-9
+    eps_ma_a, eps_ms_a, eps_sa_a = eps_ma * EPS0, eps_ms * EPS0, eps_sa * EPS0
+
+    # MA: metal–air (vacuum host above metal); field ≈ purely normal over a conductor.
+    u_ma = 0.5 * (eps_vac ** 2 / eps_ma_a) * (Ez_above ** 2)
+    e_ma = float((u_ma * t_ma * cell_area)[is_metal].sum())
+    # MS: metal–substrate (substrate host below metal).
+    u_ms = 0.5 * (eps_sub ** 2 / eps_ms_a) * (Ez_below ** 2)
+    e_ms = float((u_ms * t_ms * cell_area)[is_metal].sum())
+    # SA: substrate–air over exposed substrate (tangential continuous; normal via D).
+    u_sa = 0.5 * eps_sa_a * (Ex_s ** 2 + Ey_s ** 2
+                             + (eps_sub / eps_sa_a) ** 2 * (Ez_below ** 2))
+    e_sa = float((u_sa * t_sa * cell_area)[is_gap].sum())
+
+    p_ma, p_ms, p_sa = e_ma / U_total, e_ms / U_total, e_sa / U_total
+
+    # Defensive: a non-converged solve could produce NaN/Inf fields. Participations
+    # feed a JSON result (which bypasses the request-time non-finite guard), so coerce
+    # any non-finite value to 0.0 rather than serialise NaN.
+    def _finite(x: float) -> float:
+        return float(x) if np.isfinite(x) else 0.0
+    p_substrate, p_vacuum = _finite(p_substrate), _finite(p_vacuum)
+    p_ma, p_ms, p_sa = _finite(p_ma), _finite(p_ms), _finite(p_sa)
+
+    return {
+        "p_substrate": p_substrate,
+        "p_vacuum": p_vacuum,
+        "p_MA": p_ma, "p_MS": p_ms, "p_SA": p_sa,
+        "layers": {
+            "MA": {"thickness_nm": t_ma_nm, "eps_r": eps_ma},
+            "MS": {"thickness_nm": t_ms_nm, "eps_r": eps_ms},
+            "SA": {"thickness_nm": t_sa_nm, "eps_r": eps_sa},
+        },
+        "energized": conductors[0].get("label", "Q1"),
+        "grid": {"nx": nx, "ny": ny, "nz": nz, "nodes": N},
+    }
+
+
 def parallel_plate_self_test(eps_r: float = 1.0) -> dict:
     """Validate the solver core against the closed-form parallel-plate result
     C = ε0·εr·A/d. Two stacked square plates in a uniform medium; the numeric value

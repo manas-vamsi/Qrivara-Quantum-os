@@ -701,6 +701,120 @@ def test_circuit_graph_and_scattering_and_fab():
     assert 0 <= fab["yield_pct"] <= 100
 
 
+# ── packaging / box modes (Module 17) ───────────────────────────────────────
+def test_box_modes_pozar_scaling():
+    """Cavity resonance scales as 1/size and follows f = c/(2√εr)·√(Σ(i/L)²)."""
+    big = P.box_modes(20, 20, 4, 1.0, max_freq_ghz=25)
+    assert big and big[0]["mode"] == "110"
+    # lowest TM110 of a 20×20 mm vacuum box: c/2·√2/0.02 ≈ 10.6 GHz
+    assert abs(big[0]["freq_GHz"] - 10.6) < 0.3
+    # halving the box doubles every mode frequency (1/L scaling)
+    small = P.box_modes(10, 10, 4, 1.0, max_freq_ghz=60)
+    assert abs(small[0]["freq_GHz"] - 2 * big[0]["freq_GHz"]) < 0.3
+    # dielectric fill lowers frequencies by √εr
+    filled = P.box_modes(20, 20, 4, 4.0, max_freq_ghz=25)
+    assert abs(filled[0]["freq_GHz"] * 2.0 - big[0]["freq_GHz"]) < 0.3
+
+
+def test_package_collision_and_purcell():
+    modes = [{"mode": "110", "family": "TM", "freq_GHz": 5.05}]
+    dev = [{"label": "Q1", "freq_GHz": 5.0, "kind": "qubit"},
+           {"label": "R1", "freq_GHz": 7.1, "kind": "readout"}]
+    col = P.package_collisions(modes, dev, margin_mhz=100.0)
+    assert len(col) == 1 and col[0]["device"] == "Q1" and col[0]["detuning_MHz"] == 50.0
+    # a closer mode → shorter Purcell-limited T1 (Γ ∝ 1/Δ²)
+    near = P.package_purcell_t1(5.0, 5.05, 1e4)
+    far = P.package_purcell_t1(5.0, 5.5, 1e4)
+    assert 0 < near < far
+
+
+def test_qubit_zoo_families():
+    from app import scq
+    if not scq.available():
+        pytest.skip("scqubits not installed")
+    # a representative spread of families solves with physical f01
+    fixed = scq.qubit_spectrum("fixed_transmon")
+    assert fixed["supported"] and 3.0 < fixed["f01_GHz"] < 9.0 and fixed["anharmonicity_MHz"] < 0
+    flux = scq.qubit_spectrum("fluxonium")        # half-flux sweet spot → low f01
+    assert flux["supported"] and 0.0 < flux["f01_GHz"] < 1.5
+    zp = scq.qubit_spectrum("zeropi")             # protected → very low f01
+    assert zp["supported"] and zp["f01_GHz"] < 1.0
+    # flux tuning a fluxonium off its sweet spot raises f01
+    assert scq.qubit_spectrum("fluxonium", {"flux": 0.4})["f01_GHz"] > flux["f01_GHz"]
+    # conceptual families are honest, not faked
+    gkp = scq.qubit_spectrum("gkp")
+    assert gkp["supported"] is False and gkp.get("nearest_model")
+
+
+def test_qubit_family_dispatch():
+    r = jobs._qubit_family({"family": "heavy_fluxonium"})
+    assert r["family"] == "heavy_fluxonium" and "levels_GHz" in r
+
+
+def test_paper_to_design_reconstruction():
+    # deterministic core (no network): keyword extraction → assembled design doc.
+    from app import designgen
+    spec = designgen.keyword_spec(
+        "a 4-qubit transmon processor at 5 GHz with readout resonators on a feedline")
+    doc = designgen.assemble(spec)
+    assert spec["n_qubits"] >= 1
+    assert doc["nodes"] and "edges" in doc
+    # every node is a valid component with params (so the canvas + physics can read it)
+    assert all("data" in n and "params" in n["data"] for n in doc["nodes"])
+
+
+def test_cryogenic_drive_line():
+    from app import cryo
+    r = cryo.analyze_drive_line(cryo.DEFAULT_STAGES, 5.0, -20.0)
+    assert r["total_attenuation_dB"] == 50.0
+    assert r["signal_at_device_dBm"] == -70.0          # -20 dBm − 50 dB
+    assert 0.0 < r["device_photons_nbar"] < 1.0
+    assert len(r["stages"]) == len(cryo.DEFAULT_STAGES)
+    # more cold-stage attenuation thermalises the line → fewer thermal photons
+    import copy
+    st = copy.deepcopy(cryo.DEFAULT_STAGES); st[-1]["attenuation_dB"] = 30.0
+    assert cryo.analyze_drive_line(st, 5.0, -20.0)["device_photons_nbar"] < r["device_photons_nbar"]
+    # a hot drive overruns a cooling budget
+    hot = cryo.analyze_drive_line(cryo.DEFAULT_STAGES, 5.0, 20.0)
+    assert any(s["over_budget"] for s in hot["stages"])
+
+
+def test_surface_participation_geometry_derived():
+    from app import fem3d
+    cond = [{"label": "Q1", "x": 0, "y": 0, "w": 455, "h": 90, "gap": 30}]
+    sp = fem3d.surface_participation(cond, eps_substrate=11.7, max_nodes=80_000)
+    assert sp is not None
+    # bulk participations are a complete partition of the field energy
+    assert abs(sp["p_substrate"] + sp["p_vacuum"] - 1.0) < 1e-6
+    # high-εr substrate stores most of the energy; all participations finite & non-negative
+    assert 0.5 < sp["p_substrate"] < 1.0
+    assert all(sp[k] >= 0 for k in ("p_MA", "p_MS", "p_SA"))
+    # raising substrate permittivity pulls MORE field into the substrate
+    sp_hi = fem3d.surface_participation(cond, eps_substrate=20.0, max_nodes=80_000)
+    assert sp_hi["p_substrate"] > sp["p_substrate"]
+
+
+def test_surface_participation_job_T1():
+    r = jobs._surface_participation(NODES, {})
+    assert r["T1_dielectric_us"] and r["T1_dielectric_us"] > 0
+    assert r["limiting_channel"] in ("MA", "MS", "SA", "substrate")
+    # interfaces are ready to feed the decoherence budget (same shape it expects)
+    assert all("p" in i and "tanD" in i for i in r["interfaces"])
+    dec = jobs._decoherence({"f01_GHz": r["f01_GHz"], "interfaces": r["interfaces"]})
+    assert dec["T1_dielectric_us"] > 0
+
+
+def test_packaging_job_end_to_end():
+    r = jobs._packaging(NODES, {"box_a_mm": 22, "box_b_mm": 22, "box_d_mm": 4,
+                                "collision_margin_MHz": 400})
+    assert r["n_modes"] >= 1 and r["lowest_mode_GHz"] > 0
+    # device frequencies come from the real LOM chain + the resonator's CPW length
+    kinds = {d["kind"] for d in r["device_freqs"]}
+    assert "qubit" in kinds and "readout" in kinds
+    assert r["n_collisions"] == len(r["collisions"])
+    assert "Pozar" in r["method"]
+
+
 # ── optimization ────────────────────────────────────────────────────────────
 def test_pareto_is_genuine_front():
     pts = OPT._pareto()
