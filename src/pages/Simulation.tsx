@@ -40,7 +40,7 @@ import { api } from "@/lib/api";
 import { CHART, axisProps, ChartTooltip } from "@/lib/chartTheme";
 import { cn } from "@/lib/utils";
 
-type Tab = "validation" | "frequency" | "eigenmode" | "eigenmode_fullwave" | "capacitance" | "field_solver" | "lom" | "circuit_graph" | "coupling" | "crosstalk" | "hamiltonian" | "sweep" | "mesh" | "epr" | "scattering" | "kinetic_inductance" | "feedback" | "gate_fidelity" | "two_qubit_gate" | "frequency_collisions" | "decoherence" | "flux_spectrum" | "coupled_spectrum" | "readout" | "qec" | "packaging" | "surface_participation" | "qubit_family" | "cryogenic";
+type Tab = "validation" | "frequency" | "eigenmode" | "eigenmode_fullwave" | "capacitance" | "field_solver" | "lom" | "circuit_graph" | "coupling" | "crosstalk" | "hamiltonian" | "sweep" | "mesh" | "epr" | "scattering" | "kinetic_inductance" | "feedback" | "gate_fidelity" | "two_qubit_gate" | "frequency_collisions" | "decoherence" | "flux_spectrum" | "coupled_spectrum" | "readout" | "qec" | "packaging" | "surface_participation" | "qubit_family" | "cryogenic" | "control_electronics" | "calibration" | "knowledge_graph";
 
 const TABS: { value: Tab; label: string }[] = [
   { value: "validation", label: "Validation" },
@@ -51,6 +51,7 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "field_solver", label: "Field Solver" },
   { value: "lom", label: "LOM" },
   { value: "circuit_graph", label: "Circuit Graph" },
+  { value: "knowledge_graph", label: "Knowledge Graph" },
   { value: "coupling", label: "Coupling" },
   { value: "crosstalk", label: "Crosstalk" },
   { value: "hamiltonian", label: "Hamiltonian" },
@@ -63,6 +64,7 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "gate_fidelity", label: "Gate Fidelity" },
   { value: "two_qubit_gate", label: "2Q Gate (Time-Domain)" },
   { value: "frequency_collisions", label: "Freq. Collisions / Yield" },
+  { value: "control_electronics", label: "Control Electronics" },
   { value: "readout", label: "Readout Fidelity" }, // distinct from "Readout S21" (the S-param sweep)
   { value: "qec", label: "Error Correction" },
   { value: "packaging", label: "Packaging / Box Modes" },
@@ -72,6 +74,7 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "mesh", label: "Mesh" },
   { value: "feedback", label: "Feedback" },
   { value: "cryogenic", label: "Cryogenic Line" },
+  { value: "calibration", label: "Auto-Calibration" },
 ];
 
 // Group the 18 analyses into intuitive categories (the SC design-loop order) so
@@ -82,11 +85,11 @@ const TAB_BY_VALUE: Record<Tab, { value: Tab; label: string }> = Object.fromEntr
 ) as Record<Tab, { value: Tab; label: string }>;
 
 const GROUPS: { label: string; hint: string; tabs: Tab[] }[] = [
-  { label: "Layout", hint: "Geometry, field & extraction", tabs: ["validation", "capacitance", "field_solver", "circuit_graph", "mesh"] },
+  { label: "Layout", hint: "Geometry, field & extraction", tabs: ["validation", "capacitance", "field_solver", "circuit_graph", "knowledge_graph", "mesh"] },
   { label: "Modes & RF", hint: "EM modes & scattering", tabs: ["eigenmode", "eigenmode_fullwave", "frequency", "scattering", "kinetic_inductance"] },
   { label: "Quantum", hint: "Hamiltonian, coupling & flux", tabs: ["lom", "hamiltonian", "epr", "coupling", "flux_spectrum", "coupled_spectrum", "qubit_family"] },
-  { label: "Performance", hint: "Coherence, gates, QEC & yield", tabs: ["decoherence", "surface_participation", "gate_fidelity", "two_qubit_gate", "frequency_collisions", "readout", "qec", "crosstalk", "packaging"] },
-  { label: "Tools", hint: "Sweeps, feedback & cryogenics", tabs: ["sweep", "feedback", "cryogenic"] },
+  { label: "Performance", hint: "Coherence, gates, QEC & yield", tabs: ["decoherence", "surface_participation", "gate_fidelity", "two_qubit_gate", "frequency_collisions", "readout", "qec", "crosstalk", "packaging", "control_electronics"] },
+  { label: "Tools", hint: "Sweeps, feedback, cryo & calibration", tabs: ["sweep", "feedback", "cryogenic", "calibration"] },
 ];
 
 // Dev guard: every analysis must live in exactly one group, or it becomes
@@ -343,6 +346,9 @@ export default function Simulation() {
               {tab === "coupled_spectrum" && <CoupledSpectrumView res={res} />}
               {tab === "qubit_family" && <QubitFamilyView res={res} />}
               {tab === "cryogenic" && <CryogenicView res={res} />}
+              {tab === "control_electronics" && <ControlView res={res} />}
+              {tab === "calibration" && <CalibrationView res={res} />}
+              {tab === "knowledge_graph" && <KnowledgeGraphView res={res} />}
               {tab === "epr" && <EPRView res={res} />}
               {tab === "decoherence" && <DecoherenceView res={res} />}
               {tab === "gate_fidelity" && <GateFidelityView res={res} />}
@@ -550,6 +556,23 @@ function ParamBar({ tab, params, setParams, onRun, running, families }: any) {
   return (
     <Card inset>
       <CardContent className="flex flex-wrap items-center gap-6 py-3">
+        {tab === "calibration" && (
+          <Mini label="Ramsey detuning (MHz)"><Input value={params.detuning_MHz ?? 0.5} onChange={(e) => set("detuning_MHz", Number(e.target.value))} /></Mini>
+        )}
+        {tab === "control_electronics" && (
+          <>
+            <Mini label="AWG rate (GSa/s)"><Input value={params.sample_rate_GSps ?? 2.4} onChange={(e) => set("sample_rate_GSps", Number(e.target.value))} /></Mini>
+            <Mini label="DAC bits"><Input value={params.dac_bits ?? 14} onChange={(e) => set("dac_bits", Number(e.target.value))} /></Mini>
+            <Mini label="Pulse σ (ns)"><Input value={params.sigma_ns ?? 10} onChange={(e) => set("sigma_ns", Number(e.target.value))} /></Mini>
+            <Mini label="IQ phase err (°)"><Input value={params.iq_phase_deg ?? 1.0} onChange={(e) => set("iq_phase_deg", Number(e.target.value))} /></Mini>
+            <Mini label="DRAG">
+              <Select value={params.drag === false ? "off" : "on"} onChange={(e) => set("drag", e.target.value === "on")}>
+                <option value="on">On</option>
+                <option value="off">Off</option>
+              </Select>
+            </Mini>
+          </>
+        )}
         {tab === "cryogenic" && (
           <>
             <Mini label="Drive f (GHz)"><Input value={params.f_GHz ?? 5.0} onChange={(e) => set("f_GHz", Number(e.target.value))} /></Mini>
@@ -1981,6 +2004,185 @@ function FluxSpectrumView({ res }: { res: any }) {
               <YAxis {...axisProps} unit=" GHz" domain={["auto", "auto"]} />
               <RTooltip content={<ChartTooltip unit="GHz" />} />
               <Line type="monotone" name="f₀₁" dataKey="f01_GHz" stroke={CHART.primary} strokeWidth={2.5} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+      <p className="text-2xs text-fg-subtle">{res.method}</p>
+    </div>
+  );
+}
+
+function KnowledgeGraphView({ res }: { res: any }) {
+  const nodes: any[] = Array.isArray(res?.nodes) ? res.nodes : [];
+  const edges: any[] = Array.isArray(res?.edges) ? res.edges : [];
+  if (!nodes.length) {
+    return res?.method ? (
+      <div className="rounded-xl border border-line bg-surface-2 p-8 text-center text-sm text-fg-subtle">{res.method}</div>
+    ) : <NoData />;
+  }
+  const groupColor: Record<string, string> = {
+    geometry: "rgb(200 128 58)", em: "rgb(224 178 85)", quantum: "rgb(180 124 240)", performance: "rgb(64 192 138)",
+  };
+  // layout: layer → column, index-within-layer → row
+  const layers = [...new Set(nodes.map((n) => n.layer))].sort((a, b) => a - b);
+  const colW = 180, rowH = 78, boxW = 140, boxH = 50, padX = 16, padY = 20;
+  const pos: Record<string, { x: number; y: number }> = {};
+  const byLayer = layers.map((L) => nodes.filter((n) => n.layer === L));
+  byLayer.forEach((col, li) => col.forEach((n, ri) => { pos[n.id] = { x: li * colW + padX, y: ri * rowH + padY }; }));
+  const W = layers.length * colW + padX;
+  const H = Math.max(1, ...byLayer.map((c) => c.length)) * rowH + padY;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <div className="px-5 pt-5 text-sm font-semibold">Design dependency graph <span className="font-normal text-fg-subtle">· how every figure of merit derives from the layout</span></div>
+        <CardContent className="overflow-auto pt-4">
+          <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: W * 0.6, maxHeight: 460 }}>
+            {edges.map((e, i) => {
+              const s = pos[e.source]; const t = pos[e.target];
+              if (!s || !t) return null;
+              const x1 = s.x + boxW, y1 = s.y + boxH / 2, x2 = t.x, y2 = t.y + boxH / 2;
+              const mx = (x1 + x2) / 2;
+              return (
+                <path key={i} d={`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`}
+                  fill="none" stroke="rgb(var(--border-strong))" strokeWidth={1.5} opacity={0.7}>
+                  {e.relation && <title>{e.relation}</title>}
+                </path>
+              );
+            })}
+            {nodes.map((n) => {
+              const pp = pos[n.id]; const c = groupColor[n.group] || groupColor.quantum;
+              return (
+                <g key={n.id}>
+                  <rect x={pp.x} y={pp.y} width={boxW} height={boxH} rx={10}
+                    fill="rgb(var(--surface-2))" stroke={c} strokeWidth={1.5} />
+                  <text x={pp.x + boxW / 2} y={pp.y + 19} textAnchor="middle" className="fill-fg" style={{ fontSize: 11, fontWeight: 600 }}>{n.label}</text>
+                  <text x={pp.x + boxW / 2} y={pp.y + 36} textAnchor="middle" fill={c} style={{ fontSize: 11, fontFamily: "monospace" }}>
+                    {typeof n.value === "number" ? num(n.value).toLocaleString() : n.value}{n.unit ? ` ${n.unit}` : ""}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <div className="px-5 pt-5 text-sm font-semibold">Derivation relations</div>
+        <CardContent className="pt-3">
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            {edges.filter((e) => e.relation).map((e, i) => (
+              <div key={i} className="flex items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5 py-1.5 text-2xs">
+                <span className="font-mono text-fg-subtle">{e.source} → {e.target}</span>
+                <span className="ml-auto font-mono text-fg-muted">{e.relation}</span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+      <p className="text-2xs text-fg-subtle">{res.method}</p>
+    </div>
+  );
+}
+
+function CalibrationView({ res }: { res: any }) {
+  if (!Array.isArray(res?.experiments)) return <NoData />;
+  const table = res.calibration_table || [];
+  return (
+    <div className="space-y-5">
+      <Card>
+        <div className="px-5 pt-5 text-sm font-semibold">Calibration table <span className="font-normal text-fg-subtle">· design target vs emulated measurement</span></div>
+        <CardContent className="overflow-auto pt-4">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-line text-left text-2xs uppercase tracking-wider text-fg-subtle">
+                <th className="p-2">Experiment</th><th className="p-2">Parameter</th>
+                <th className="p-2 text-right">Target</th><th className="p-2 text-right">Measured</th><th className="p-2 text-right">Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {table.map((r: any, i: number) => (
+                <tr key={i} className="border-b border-line/50 last:border-0">
+                  <td className="p-2 font-medium text-fg">{r.experiment}</td>
+                  <td className="p-2 font-mono text-xs text-fg-muted">{r.param}</td>
+                  <td className="p-2 text-right font-mono text-xs tabular-nums">{r.target ?? "—"}</td>
+                  <td className="p-2 text-right font-mono text-xs tabular-nums text-primary">{r.measured ?? "—"}</td>
+                  <td className={cn("p-2 text-right font-mono text-xs tabular-nums", num(r.error_pct) > 5 ? "text-warning" : "text-success")}>
+                    {r.error_pct == null ? "—" : `${r.error_pct}%`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-3 text-2xs text-fg-subtle">The emulator generates each curve from this design's physics (+ shot noise) and applies the standard fit — the measurements a bring-up would yield, and the digital-twin parameters they calibrate to.</p>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        {res.experiments.map((e: any, i: number) => (
+          <Card key={i}>
+            <div className="flex items-center justify-between px-5 pt-5">
+              <div className="text-sm font-semibold">{e.experiment}</div>
+              <Badge tone="cyan">{Object.entries(e.fit || {}).map(([k, v]) => `${k}=${v}`).join(" · ")}</Badge>
+            </div>
+            <CardContent className="pt-4">
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={e.curve}>
+                  <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="x" {...axisProps} />
+                  <YAxis {...axisProps} />
+                  <RTooltip content={<ChartTooltip />} />
+                  <Line type="monotone" dataKey="y" stroke={CHART.primary} strokeWidth={1.75} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+              <p className="mt-1 text-2xs text-fg-subtle">{e.x_label} → {e.y_label}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <p className="text-2xs text-fg-subtle">{res.method}</p>
+    </div>
+  );
+}
+
+function ControlView({ res }: { res: any }) {
+  if (res?.control_fidelity_pct == null) return <NoData />;
+  const wf = Array.isArray(res.waveform) ? res.waveform : [];
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label="Control fidelity" value={num(res.control_fidelity_pct).toFixed(3)} unit="%" tone={num(res.control_fidelity_pct) > 99.9 ? "success" : "warning"} />
+        <MetricCard label="Image rejection" value={res.image_rejection_dB} unit="dB" tone={num(res.image_rejection_dB) >= 30 ? "success" : "warning"} />
+        <MetricCard label="Quantization SNR" value={res.quantization_snr_dB} unit="dB" tone="cyan" />
+        <MetricCard label="Leakage → |2⟩" value={num(res.leakage_to_2_pct).toFixed(3)} unit="%" tone={num(res.leakage_to_2_pct) < 0.1 ? "success" : "warning"} />
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={res.drag ? "success" : "neutral"}>DRAG {res.drag ? "on" : "off"}</Badge>
+        <Badge tone="violet">{res.sample_rate_GSps} GSa/s · {res.dac_bits}-bit</Badge>
+        <Badge tone="neutral">{res.samples_per_pulse} samples / {res.pulse_length_ns} ns pulse</Badge>
+        {!res.nyquist_ok && <Badge tone="warning">below Nyquist</Badge>}
+      </div>
+
+      {Array.isArray(res.recommendations) && res.recommendations.length > 0 && (
+        <div className={cn("rounded-lg border px-3 py-2 text-xs", num(res.control_fidelity_pct) > 99.9 ? "border-success/30 bg-success/5 text-success" : "border-warning/30 bg-warning/5 text-warning")}>
+          <ul className="list-disc space-y-1 pl-4">{res.recommendations.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
+        </div>
+      )}
+
+      <Card>
+        <div className="px-5 pt-5 text-sm font-semibold">Synthesised pulse <span className="font-normal text-fg-subtle">· I (quantised envelope) & Q (DRAG quadrature)</span></div>
+        <CardContent className="pt-6">
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={wf}>
+              <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="t_ns" {...axisProps} unit=" ns" />
+              <YAxis {...axisProps} />
+              <RTooltip content={<ChartTooltip />} />
+              <Legend />
+              <Line type="monotone" name="I (in-phase)" dataKey="I" stroke={CHART.primary} strokeWidth={2} dot={false} />
+              <Line type="monotone" name="Q (DRAG)" dataKey="Q" stroke={CHART.violet} strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </CardContent>

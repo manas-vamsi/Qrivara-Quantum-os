@@ -177,4 +177,85 @@ Grouped as they appear in the Simulation page:
 - "Geometry-derived coherence: the layout's field tells you T1, not a hand-set number."
 - "Fabrication yield before you tape out: junction spread + frequency-collision + packaging modes."
 
+---
+
+## 9. Build status — WHAT WE HAVE (updated)
+
+Everything below is built, wired to the real backend, and covered by **71 passing backend
+tests** + a clean typed frontend build. Nothing is faked ("no-fake-data" rule).
+
+**Core platform & solvers**
+- ✅ Visual Designer (keyboard shortcuts, duplicate/copy-paste, snap-to-grid, **live qubit-physics inspector**, quick-start templates, real save status), Code Studio, 3-D View.
+- ✅ Own 2-D + 3-D electrostatic FEM (±0.4%, no Ansys), LC eigenmodes, capacitance matrix.
+- 🔌 Full-wave EM (Palace) — integration built & tested; needs the binary (see §12).
+
+**~36 analyses** (all paper-cited): validation/DRC, capacitance, field solver, circuit graph, **knowledge graph**, mesh, eigenmode (LC + full-wave), frequency/S-params, kinetic inductance, LOM, Hamiltonian, EPR, coupling, flux spectroscopy, coupled spectrum, **Qubit Zoo (12 families via scqubits)**, decoherence, **surface-participation → geometry-T1**, gate fidelity, 2-qubit time-domain gate, frequency-collision yield, readout, QEC, crosstalk, **packaging/box modes**, **control electronics**, **cryogenic drive line**, **auto-calibration emulator**, sweep, feedback.
+
+**Design intelligence & data**
+- ✅ Optimization (Nelder-Mead, Pareto, inverse design, MC yield), AI advisor + agentic assistant, **natural-language & paper-to-design** generation.
+- ✅ **Materials Intelligence** (enriched DB + comparison + coherence predictor), Component Library, SQuADDS-style validated designs.
+- ✅ Exports: GDS-II, DXF, DRC, SPICE, Touchstone, **Qiskit Target digital twin**.
+
+**Platform**
+- ✅ Collaboration (RBAC, teams, messages, comments, presence, notifications), Dashboard, Results, Experiments (version history).
+- ✅ FastAPI + Postgres + async workers + **production hardening** (rate-limit, request-id logs, security headers, clean error handling).
+
+→ **19 of 20 spec modules built; the 20th (full-wave) is integration-complete and binary-gated.** Plus ~7 features beyond the original spec (Qubit Zoo, Materials Intelligence, Cryogenic designer, Control electronics, Auto-calibration, Knowledge graph, Paper-to-design).
+
+## 10. What we NEED TO BUILD (and the blocker on each)
+
+| Item | Effort | Blocker / what it needs |
+|---|---|---|
+| **Activate full-wave (Palace)** | Small | The Palace MPI binary on a Linux host (WSL2/Docker on a laptop for small jobs; a VM/HPC for big). Integration is done. |
+| **Distributed/HPC compute tier** | Medium | A job queue + autoscaling cloud workers (Ray/Celery+Redis) — for 100+ qubit chips. |
+| **Production auth + multi-tenant deploy** | Medium | Wire Supabase JWT (scaffolded) + a managed cloud tenant. |
+| **Object storage** | Small | S3/R2 for GDS/large artifacts + avatars (currently in-DB). |
+| **Validation vs a fabricated device** | Partnership | A fab/measurement partner — the single most credibility-defining gap. |
+| **Foundry/PDK packs + tape-out DRC** | Partnership | Foundry partnerships + proprietary rule data. |
+| **Knowledge-graph at scale (Neo4j)** | Medium | A graph-DB server (the in-app dependency graph already covers the single-design case). |
+| **Exact 0-π / cat / GKP / Andreev gate physics** | Large (research) | Multi-mode quantization + new theory (their spectra already work via scqubits). |
+| **CI/CD, monitoring, SOC2/ISO, AI eval/cost guardrails** | Medium | Standard production hardening for enterprise/defense customers. |
+
+## 11. Cost estimates (rough — for planning, not quotes)
+
+| Stage | Monthly infra | One-time / notes |
+|---|---|---|
+| **Now — solo dev / demo** | **~$0–50** (free tiers: Vercel/Cloudflare, a small managed Postgres, LLM free/low tier) | A decent dev laptop (see §12). Everything runs locally. |
+| **Pilot — a few design partners** | **~$150–600** (1 cloud VM 16–32 vCPU / 64–128 GB for heavy solves, managed Postgres, object storage, LLM usage, hosting) | No cluster needed yet — one beefy VM covers full-wave + big FEM. |
+| **Production — scaling** | **~$1.5k–5k** (autoscaling workers, bigger DB, storage, HPC bursts for full-wave/large chips, monitoring) | Usage-based compute credits can pass heavy-sim cost to users. |
+| **Team (the real cost)** | — | 2–3 hires (physics/FEM eng, full-stack, devrel) ≈ **$300k–600k/yr** — the dominant line item, per the founder brief. |
+
+LLM API (the AI features) is usage-based: roughly **$20–200/mo** at small scale, more at usage scale; cap the free tier. Full-wave HPC is **pay-per-run** (cloud spot instances), not always-on.
+
+**Bottom line:** the science is done and runs on free/cheap infra today; money buys **compute scale, the team, and production hardening** — not "does it work."
+
+## 12. Hardware & dev-environment requirements (the honest version)
+
+**Is it real / do you need a better laptop?** The application is real and already runs.
+Your laptop is a **developer-comfort** issue, **not** a product ceiling — because the heavy
+compute is **server-side**. Users hit it through a browser; scaling lives on a cloud server,
+not on your machine. So you do **not** need an expensive laptop to *ship* this — you need a
+*comfortable dev machine* + *cheap cloud when you scale*.
+
+**Developing on 8 GB RAM — real talk:** it works for small designs but will hurt.
+Running Vite (frontend) + FastAPI + the Python venv (numpy/scipy/scqubits/qutip) + a browser
++ an editor at the same time on 8 GB means **constant swapping**, and you'll see:
+- **3-D View / big-canvas render lag and jank** (Three.js + React Flow + charts are memory-hungry; low RAM + weak GPU → stutter, dropped frames, occasional tab crash).
+- **Out-of-memory or very slow solves** on the 3-D FEM (it builds large sparse matrices — up to ~150k grid nodes) and on scqubits/QuTiP runs.
+- **Slow builds** (`tsc` + Vite) and a sluggish overall feel.
+
+**Recommended dev machine:**
+
+| RAM | Verdict for developing QRIVARA |
+|---|---|
+| **8 GB** | Works for small designs only; expect swapping, render jank, OOM on heavy solves. Close other apps; keep meshes/qubit counts small. **Not ideal for clean building.** |
+| **16 GB** | **Practical minimum** for a smooth experience — frontend + backend + browser + solves without thrashing. |
+| **32 GB** | **Comfortable** — bigger FEM solves, multiple services, local full-wave (Palace in WSL2) for 1–2 qubits. |
+
+If your laptop allows it, **adding a RAM stick to 16 GB is a cheap upgrade (~$30–60)** and the single biggest quality-of-life improvement for development. A new 16 GB laptop is ~$700–1000; 32 GB ~$1200–1800.
+
+**For full-scale simulation, the answer is the cloud, not your laptop:** put the backend on a
+64–256 GB cloud VM (or autoscaling workers) and your 8 GB laptop just drives the browser UI —
+which it can do fine. Don't buy a workstation to chase scale; rent compute by the hour.
+
 *— end —*

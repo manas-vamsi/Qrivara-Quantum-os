@@ -226,6 +226,25 @@ SIMULATION_TYPES = {
         "outputs": ["p_phys", "p_logical", "distance", "lambda",
                     "physical_qubits_per_logical", "distance_table"],
     },
+    "knowledge_graph": {
+        "label": "Design Knowledge Graph",
+        "question": "How does every figure of merit derive from this layout?",
+        "engine": "QRIVARA design dependency graph (geometry → field → Hamiltonian → coherence → fidelity)",
+        "outputs": ["nodes", "edges"],
+    },
+    "calibration": {
+        "label": "Auto-Calibration (Experiments)",
+        "question": "What Rabi/Ramsey/T1/T2/spectroscopy curves would this device give, and what do they calibrate to?",
+        "engine": "QRIVARA calibration-experiment emulator (curve_fit recovery; Krantz 2019 §III)",
+        "outputs": ["experiments", "calibration_table", "digital_twin"],
+    },
+    "control_electronics": {
+        "label": "Control Electronics",
+        "question": "How much gate error does the room-temperature AWG/mixer drive chain add?",
+        "engine": "QRIVARA AWG/DAC → IQ-mixer → filter model (Motzoi 2009 DRAG; Krantz 2019 §VI)",
+        "outputs": ["quantization_snr_dB", "image_rejection_dB", "leakage_to_2_pct",
+                    "gate_error_contribution", "control_fidelity_pct", "waveform"],
+    },
     "cryogenic": {
         "label": "Cryogenic Drive Line",
         "question": "Does the fridge wiring thermalise the drive and stay within each stage's cooling budget?",
@@ -299,6 +318,9 @@ def run_job(job: SimulationJob, design: Design) -> dict:
         "surface_participation": lambda: _surface_participation(nodes, p),
         "qubit_family": lambda: _qubit_family(p),
         "cryogenic": lambda: _cryogenic(p),
+        "control_electronics": lambda: _control_electronics(p),
+        "calibration": lambda: _calibration(nodes, p),
+        "knowledge_graph": lambda: _knowledge_graph(nodes, p),
         "frequency": lambda: _frequency(p, nodes),
         "capacitance": lambda: _capacitance(nodes, p),
         "field_solver": lambda: _field_solver(nodes, p),
@@ -614,6 +636,108 @@ def _surface_participation(nodes: list, p: dict | None = None) -> dict:
                    "→ dielectric T1; surface layers are grid-resolution estimates"),
         **_coverage(len(all_q), len(qubits)),
     }
+
+
+# ── KNOWLEDGE GRAPH — design dependency / provenance graph ──────────────────
+def _knowledge_graph(nodes: list, p: dict | None = None) -> dict:
+    """Build the design's dependency graph: how every figure of merit derives from the
+    layout — geometry → (FEM) capacitance → EC/EJ → f01/anharmonicity → coherence →
+    gate fidelity, with the governing relation on each edge. A 'research knowledge
+    graph' grounded in this specific design's computed values."""
+    p = p or {}
+    qubits = _transmons(nodes)
+    if not qubits:
+        return {"nodes": [], "edges": [], "method": "knowledge graph (no transmons in layout)",
+                **_coverage(0, 0)}
+    g_nodes: list[dict] = []
+    g_edges: list[dict] = []
+    def node(nid, label, value, unit, layer, group):
+        g_nodes.append({"id": nid, "label": label, "value": value, "unit": unit,
+                        "layer": layer, "group": group})
+    def edge(s, t, rel):
+        g_edges.append({"source": s, "target": t, "relation": rel})
+    try:
+        lom = _lom(nodes, p)
+        q = lom["qubits"][0]
+        d0 = (qubits[0].get("data", {}) or {}).get("params", {}) or {}
+        ic = float(d0.get("ic_nA", 30))
+        cs, ec, ej, f01, anh = (q["C_sigma_fF"], q["EC_MHz"], q["EJ_GHz"],
+                                q["f01_GHz"], q["anharmonicity_MHz"])
+        dec = _decoherence({"f01_GHz": f01, "anharmonicity_MHz": anh})
+        t1, t2 = dec["T1_total_us"], dec["T2_echo_us"]
+        gf = _gate_fidelity({"T1_us": t1, "T2_us": t2})
+
+        node("geom", "Pad geometry", "w · h · gap", "µm", 0, "geometry")
+        node("ic", "Junction Ic", round(ic, 1), "nA", 0, "geometry")
+        node("cap", "Self-cap CΣ", cs, "fF", 1, "em")
+        node("ej", "EJ", ej, "GHz", 2, "quantum")
+        node("ec", "EC", ec, "MHz", 2, "quantum")
+        node("f01", "f₀₁", f01, "GHz", 3, "quantum")
+        node("anh", "Anharmonicity α", anh, "MHz", 3, "quantum")
+        node("t1", "T₁", t1, "µs", 4, "performance")
+        node("t2", "T₂ (echo)", t2, "µs", 4, "performance")
+        node("fid", "1Q gate fidelity", gf["fidelity_1q_pct"], "%", 5, "performance")
+
+        edge("geom", "cap", "FEM ∇·(ε∇φ)=0")
+        edge("ic", "ej", "EJ = Φ₀·Iᶜ/2π")
+        edge("cap", "ec", "EC = e²/2CΣ")
+        edge("ej", "f01", "f₀₁ = √(8EJEC) − EC")
+        edge("ec", "f01", "√(8EJEC) − EC")
+        edge("ec", "anh", "α = −EC")
+        edge("f01", "t1", "loss budget → Q → T₁")
+        edge("t1", "t2", "T₂ ≤ 2T₁")
+        edge("t1", "fid", "ε ≈ (t_g/3)(1/T₁+1/T₂)")
+        edge("t2", "fid", "")
+        # couplings (if any) add a g node feeding fidelity context
+        cpl = lom.get("couplings", [])
+        if cpl:
+            node("g", "Coupling g", cpl[0]["g_MHz"], "MHz", 2, "em")
+            edge("cap", "g", "g = ½·Cg/√(CqCr)·√(fᵢfⱼ)")
+        return {"nodes": g_nodes, "edges": g_edges,
+                "method": "design dependency graph (geometry → field → Hamiltonian → coherence → fidelity)",
+                **_coverage(len(qubits), 1)}
+    except Exception as exc:  # noqa: BLE001
+        return {"nodes": [], "edges": [], "method": f"knowledge graph unavailable: {str(exc)[:60]}"}
+
+
+# ── AUTO-CALIBRATION — emulate the bring-up experiments + fits ──────────────
+def _calibration(nodes: list, p: dict | None = None) -> dict:
+    """Calibration-experiment emulator. Pulls the qubit's f01/T1/T2 from the layout
+    (LOM → decoherence) when available, else from params, then runs the full Rabi/
+    Ramsey/T1/echo/spectroscopy sequence and fits each to a calibration table."""
+    from . import calib
+    p = p or {}
+    f01 = float(p.get("f01_GHz", 5.0))
+    t1 = float(p.get("T1_us", 80.0))
+    t2 = float(p.get("T2_us", 90.0))
+    anh = float(p.get("anharmonicity_MHz", -310.0))
+    try:
+        lom = _lom(nodes, p)
+        if lom.get("qubits"):
+            q0 = lom["qubits"][0]
+            f01 = float(q0["f01_GHz"]); anh = float(q0["anharmonicity_MHz"])
+            dec = _decoherence({"f01_GHz": f01, "anharmonicity_MHz": anh})
+            t1, t2 = dec["T1_total_us"], dec["T2_echo_us"]
+    except Exception:  # noqa: BLE001 — fall back to params
+        pass
+    return calib.run_calibration(f01, t1, t2, anh, float(p.get("detuning_MHz", 0.5)))
+
+
+# ── CONTROL ELECTRONICS — room-temperature drive-chain error budget ─────────
+def _control_electronics(p: dict | None = None) -> dict:
+    """Control-electronics analysis (param-driven): AWG/DAC → IQ-mixer → filter chain
+    error budget for a Gaussian/DRAG single-qubit pulse."""
+    from . import control
+    p = p or {}
+    return control.analyze_drive_chain(
+        sample_rate_GSps=float(p.get("sample_rate_GSps", 2.4)),
+        dac_bits=int(p.get("dac_bits", 14)),
+        sigma_ns=float(p.get("sigma_ns", 10.0)),
+        anharmonicity_MHz=float(p.get("anharmonicity_MHz", -310.0)),
+        drag=bool(p.get("drag", True)),
+        iq_amp_imbalance=float(p.get("iq_amp_imbalance", 0.02)),
+        iq_phase_deg=float(p.get("iq_phase_deg", 1.0)),
+        filter_bw_MHz=float(p.get("filter_bw_MHz", 500.0)))
 
 
 # ── CRYOGENIC DRIVE LINE — fridge wiring thermal/heat budget ────────────────

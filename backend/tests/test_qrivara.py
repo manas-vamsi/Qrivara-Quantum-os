@@ -763,6 +763,40 @@ def test_paper_to_design_reconstruction():
     assert all("data" in n and "params" in n["data"] for n in doc["nodes"])
 
 
+def test_knowledge_graph_dependency_chain():
+    r = jobs._knowledge_graph(NODES, {})
+    ids = {n["id"] for n in r["nodes"]}
+    # the full chain is present: geometry → capacitance → EC/EJ → f01 → coherence → fidelity
+    assert {"geom", "cap", "ec", "ej", "f01", "t1", "fid"} <= ids
+    # edges reference only real nodes
+    for e in r["edges"]:
+        assert e["source"] in ids and e["target"] in ids
+    # the key derivation (cap → EC) is captured
+    assert any(e["source"] == "cap" and e["target"] == "ec" for e in r["edges"])
+
+
+def test_control_electronics_drag_suppresses_leakage():
+    from app import control
+    fast_nodrag = control.analyze_drive_chain(sigma_ns=1.0, drag=False)
+    fast_drag = control.analyze_drive_chain(sigma_ns=1.0, drag=True)
+    assert fast_drag["leakage_to_2_pct"] < fast_nodrag["leakage_to_2_pct"]   # DRAG helps
+    # a worse IQ mixer gives lower image rejection
+    good = control.analyze_drive_chain(iq_phase_deg=0.5, iq_amp_imbalance=0.01)
+    bad = control.analyze_drive_chain(iq_phase_deg=8.0, iq_amp_imbalance=0.15)
+    assert good["image_rejection_dB"] > bad["image_rejection_dB"]
+    assert len(good["waveform"]) > 4 and 0 <= good["control_fidelity_pct"] <= 100
+
+
+def test_calibration_recovers_design_params():
+    from app import calib
+    r = calib.run_calibration(f01_ghz=5.1, t1_us=85.0, t2_us=95.0)
+    assert len(r["experiments"]) == 5 and len(r["calibration_table"]) == 5
+    # every fit recovers its design target within a few % (curve_fit on clean-ish data)
+    for row in r["calibration_table"]:
+        assert row["error_pct"] is None or row["error_pct"] < 10.0
+    assert "T1_us" in r["digital_twin"] and r["digital_twin"]["T1_us"] > 0
+
+
 def test_cryogenic_drive_line():
     from app import cryo
     r = cryo.analyze_drive_line(cryo.DEFAULT_STAGES, 5.0, -20.0)
