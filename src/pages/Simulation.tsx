@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity,
@@ -106,8 +106,10 @@ export default function Simulation() {
   const [tab, setTab] = useState<Tab>("frequency");
   const [solver, setSolver] = useState("qrivara_fem");
   const [running, setRunning] = useState(false);
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [res, setRes] = useState<any>(null);
+  // Cache of every analysis's result, keyed by tab — "Run all" fills it once, then
+  // switching tabs just displays the cached result (no per-tab re-run needed).
+  const [resultsByTab, setResultsByTab] = useState<Record<string, { result: any; jobId: string }>>({});
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [params, setParams] = useState<any>({
     resonator_freq_GHz: 7.1,
     kappa_MHz: 1.2,
@@ -135,11 +137,7 @@ export default function Simulation() {
   const [qtOpen, setQtOpen] = useState(false);
   const [qtData, setQtData] = useState<any>(null);
   const [qtLoading, setQtLoading] = useState(false);
-  // Monotonic run token: a poll that resolves after a newer run started (or
-  // after the user switched tabs) is ignored, so results never land on the
-  // wrong tab. Now that runs are async (submit + poll) this race is reachable.
-  const runSeq = useRef(0);
-
+  const [qtDesignId, setQtDesignId] = useState<string | null>(null);
   useEffect(() => {
     fetchProjects();
     api.getExportFormats().then(setFormats).catch(console.error);
@@ -147,35 +145,69 @@ export default function Simulation() {
   }, [fetchProjects]);
 
   const project = projects.find((p: any) => p.id === projectId);
+  // The active tab's cached result + job id (set by Run all / Re-run).
+  const res = resultsByTab[tab]?.result ?? null;
+  const jobId = resultsByTab[tab]?.jobId ?? null;
 
+  const resolveDesignId = async (): Promise<string | null> => {
+    const designs = await api.getProjectDesigns(projectId);
+    return designs?.[0]?.id ?? null;
+  };
+
+  // Re-run just the CURRENT analysis (for tweaking its params, e.g. Qubit Zoo / Cryo).
   const run = async () => {
-    if (!projectId) return;
-    const seq = ++runSeq.current;          // claim this as the latest run
-    const requestedTab = tab;
+    if (!projectId || running) return;
     setRunning(true);
-    setRes(null);
-    setJobId(null);
     try {
-      // Find design ID for project
-      const designs = await api.getProjectDesigns(projectId);
-      const dId = designs?.[0]?.id;
+      const dId = await resolveDesignId();
       if (!dId) throw new Error("No design found for project");
-
-      // Submit (202, queued) then poll until the background worker finishes —
-      // non-blocking on the server side (api.runSimulation polls internally).
-      const job = await api.runSimulation(dId, requestedTab, solver, params);
-      if (seq !== runSeq.current) return;   // a newer run superseded this one
-      setJobId(job.id);
+      const job = await api.runSimulation(dId, tab, solver, params);
       if (job.status === "done") {
-        setRes(job.result);
+        setResultsByTab((m) => ({ ...m, [tab]: { result: job.result, jobId: job.id } }));
       } else {
-        setRes(null);
         console.error(`Simulation ${job.status}:`, job.error);
       }
     } catch (err) {
-      if (seq === runSeq.current) console.error(err);
+      console.error(err);
     } finally {
-      if (seq === runSeq.current) setRunning(false);
+      setRunning(false);
+    }
+  };
+
+  // Run EVERY analysis once (3 in flight — gentle on memory), streaming each result
+  // into the cache as it lands. After this, the user just clicks tabs to view results.
+  const runAll = async () => {
+    if (!projectId || running) return;
+    setRunning(true);
+    const all = TABS.map((t) => t.value);
+    setProgress({ done: 0, total: all.length });
+    try {
+      const dId = await resolveDesignId();
+      if (!dId) throw new Error("No design found for project");
+      const queue = [...all];
+      let done = 0;
+      const worker = async () => {
+        while (queue.length) {
+          const type = queue.shift()!;
+          try {
+            const job = await api.runSimulation(dId, type, solver, params);
+            if (job.status === "done") {
+              setResultsByTab((m) => ({ ...m, [type]: { result: job.result, jobId: job.id } }));
+            }
+          } catch (e) {
+            console.error(`[${type}]`, e);
+          } finally {
+            done += 1;
+            setProgress({ done, total: all.length });
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: 3 }, worker));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRunning(false);
+      setProgress(null);
     }
   };
 
@@ -206,6 +238,7 @@ export default function Simulation() {
       const designs = await api.getProjectDesigns(projectId);
       const dId = designs?.[0]?.id;
       if (!dId) throw new Error("No design found for this project");
+      setQtDesignId(dId);
       setQtData(await api.getQiskitTarget(dId));
     } catch (e: any) {
       setQtData({ error: e?.message || "Failed to build the Qiskit Target" });
@@ -245,22 +278,28 @@ export default function Simulation() {
             <Button variant="outline" icon={<Cpu className="h-4 w-4" />} onClick={openQiskitTarget} disabled={!projectId}>
               Qiskit
             </Button>
-            <Button icon={<RotateCw className="h-4 w-4" />} loading={running} onClick={run} disabled={!projectId}>
-              Run
+            <Button icon={<RotateCw className="h-4 w-4" />} loading={running} onClick={runAll} disabled={!projectId}>
+              {progress ? `Running ${progress.done}/${progress.total}…` : "Run all"}
             </Button>
           </>
         }
       />
 
+      {/* Run-all progress — every analysis computes once, then tabs show cached results */}
+      {progress && (
+        <div className="flex items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">
+          <StatusDot tone="primary" pulse />
+          <span>Running all analyses — {progress.done} of {progress.total} done. Results appear under each tab as they finish.</span>
+          <div className="ml-auto h-1.5 w-40 overflow-hidden rounded-full bg-surface-3">
+            <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+          </div>
+        </div>
+      )}
+
       {/* Two-tier analysis nav: category pills (tier 1) + per-category tabs (tier 2).
-          Switching tabs invalidates any in-flight run so a stale result can't land
-          on the new tab (the run is async + polled). */}
+          Switching tabs just shows that analysis's cached result (from Run all). */}
       {(() => {
-        const selectTab = (v: Tab) => {
-          runSeq.current++;
-          setRes(null);
-          setTab(v);
-        };
+        const selectTab = (v: Tab) => setTab(v);
         const activeCategory = GROUPS.find((g) => g.tabs.includes(tab)) ?? GROUPS[0];
         return (
           <div className="space-y-3">
@@ -304,8 +343,10 @@ export default function Simulation() {
           {!res ? (
             <EmptyState
               icon={<Activity className="h-5 w-5" />}
-              title={running ? "Simulation in progress…" : "No results yet"}
-              description={running ? "The solver is processing your design on the backend." : "Select a project and click 'Run' to start the simulation."}
+              title={running ? "Computing analyses…" : "No result for this analysis yet"}
+              description={running
+                ? "Results stream in under each tab as they finish — switch tabs to watch them populate."
+                : "Select a project and click “Run all” to compute every analysis at once, then click any tab to view its result. Use “Re-run” below to recompute just this one (e.g. after changing its parameters)."}
             />
           ) : (
             <div className="space-y-6">
@@ -387,7 +428,7 @@ export default function Simulation() {
         </motion.div>
       </AnimatePresence>
 
-      <QiskitTargetModal open={qtOpen} onClose={() => setQtOpen(false)} data={qtData} loading={qtLoading} />
+      <QiskitTargetModal open={qtOpen} onClose={() => setQtOpen(false)} data={qtData} loading={qtLoading} designId={qtDesignId} />
     </div>
   );
 }
@@ -423,10 +464,25 @@ qc.measure_all()
 print(transpile(qc, target=target))`;
 }
 
-function QiskitTargetModal({ open, onClose, data, loading }: {
-  open: boolean; onClose: () => void; data: any; loading: boolean;
+function QiskitTargetModal({ open, onClose, data, loading, designId }: {
+  open: boolean; onClose: () => void; data: any; loading: boolean; designId: string | null;
 }) {
   const [copied, setCopied] = useState<string | null>(null);
+  const [aerCircuit, setAerCircuit] = useState("ghz");
+  const [aer, setAer] = useState<any>(null);
+  const [aerLoading, setAerLoading] = useState(false);
+  const [aerErr, setAerErr] = useState<string | null>(null);
+  const runAer = async () => {
+    if (!designId) return;
+    setAerLoading(true); setAerErr(null); setAer(null);
+    try {
+      setAer(await api.runAerSimulation(designId, aerCircuit, 2048));
+    } catch (e: any) {
+      setAerErr(e?.message || "Aer simulation failed (is qiskit-aer installed on the server?)");
+    } finally {
+      setAerLoading(false);
+    }
+  };
   const ok = data && !data.error;
   const copy = async (text: string, key: string) => {
     try {
@@ -492,6 +548,56 @@ function QiskitTargetModal({ open, onClose, data, loading }: {
           <p className="text-2xs text-fg-subtle">
             Assembled from: {(data.simulation_types_used || []).join(" · ") || "live Hamiltonian solve"}
           </p>
+
+          {/* Run a real circuit against the chip's noise model (qiskit-aer) */}
+          <div className="rounded-xl border border-cyan/25 bg-cyan/5 p-3.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-fg">Run on your chip <span className="font-normal text-fg-subtle">· noisy simulation (qiskit-aer)</span></span>
+              <div className="ml-auto flex items-center gap-2">
+                <Select value={aerCircuit} onChange={(e) => setAerCircuit(e.target.value)} className="h-8 w-32 text-xs">
+                  <option value="ghz">GHZ state</option>
+                  <option value="bell">Bell pair</option>
+                </Select>
+                <Button size="sm" loading={aerLoading} onClick={runAer} disabled={!designId} icon={<Play className="h-3.5 w-3.5" />}>
+                  Run
+                </Button>
+              </div>
+            </div>
+            <p className="mt-1 text-2xs text-fg-subtle">Builds a noise model from this chip's T₁/T₂, gate errors &amp; readout, then runs the circuit ideal vs noisy.</p>
+            {aerErr && <p className="mt-2 text-2xs text-error">{aerErr}</p>}
+            {aer && (
+              <div className="mt-3 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone={num(aer.fidelity_pct) > 90 ? "success" : num(aer.fidelity_pct) > 70 ? "primary" : "warning"}>
+                    {aer.circuit.toUpperCase()} fidelity {num(aer.fidelity_pct).toFixed(1)}%
+                  </Badge>
+                  <Badge tone="neutral">{aer.n_qubits} qubits · {aer.shots} shots</Badge>
+                  <Badge tone="violet">TVD {aer.total_variation_distance}</Badge>
+                </div>
+                <div>
+                  <p className="mb-1 text-2xs uppercase tracking-wider text-fg-subtle">Measured outcomes (noisy chip)</p>
+                  <div className="space-y-1">
+                    {(aer.noisy_counts || []).slice(0, 6).map((s: any) => {
+                      const ideal = (aer.ideal_counts || []).find((i: any) => i.state === s.state);
+                      const isIdeal = !!ideal && ideal.prob > 0.05;
+                      return (
+                        <div key={s.state} className="flex items-center gap-2">
+                          <span className="w-24 shrink-0 font-mono text-2xs text-fg-muted">|{s.state}⟩</span>
+                          <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-surface-3">
+                            <div className={cn("h-full rounded-full", isIdeal ? "bg-cyan" : "bg-warning/70")} style={{ width: `${Math.min(100, s.prob * 100)}%` }} />
+                          </div>
+                          <span className="w-12 shrink-0 text-right font-mono text-2xs tabular-nums text-fg">{(s.prob * 100).toFixed(1)}%</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-1.5 text-2xs text-fg-subtle">
+                    <span className="text-cyan">Cyan</span> = ideal target states · <span className="text-warning">amber</span> = error outcomes from the chip's noise. {aer.method}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div>
             <div className="mb-2 text-sm font-semibold">Qubit properties</div>

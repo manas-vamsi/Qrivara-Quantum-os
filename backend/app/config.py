@@ -61,6 +61,14 @@ class Settings(BaseSettings):
     ]
     # When set, the API verifies Supabase JWTs (prod). Empty = dev mode (demo user).
     supabase_jwt_secret: str | None = None
+    # ── Per-tenant licensing (e.g. one instance per university) ─────────────
+    # Display name of the licensed organization (shown in the UI / reports).
+    tenant_name: str = ""
+    # Sign-in allowlist: only users whose email domain is in this list may
+    # authenticate on this instance. EMPTY = open (any verified user). Set it to
+    # the licensee's domain(s) so an MIT instance only admits @mit.edu accounts.
+    # Comma/JSON list in the env var, e.g. ALLOWED_EMAIL_DOMAINS=["mit.edu","alum.mit.edu"].
+    allowed_email_domains: list[str] = []
     # LLM provider keys for the AI assistant. Read server-side ONLY — never
     # returned to the frontend. The assistant tries providers in latency-first
     # order (Groq → Gemini → OpenRouter) with automatic fallback.
@@ -104,6 +112,22 @@ class Settings(BaseSettings):
     # Send conservative security headers (nosniff, no-frame, referrer policy). The API
     # serves JSON, not HTML, so these are safe defaults.
     security_headers: bool = True
+
+    # ── Object storage (app.storage) ────────────────────────────────────────
+    # Where large artifacts (avatars, GDS, reports) live. "none" (default) keeps
+    # them inline as data-URLs in the DB — unchanged behavior, fine for dev.
+    # "local" writes to `storage_dir` and serves them at /storage/<key>; "s3"
+    # uploads to an S3/R2 bucket (boto3, lazily imported only when selected).
+    storage_backend: str = "none"          # none | local | s3
+    storage_dir: str = "./storage"
+    storage_public_base: str = ""          # URL prefix for stored objects ("" → relative /storage)
+    storage_max_bytes: int = 8_000_000     # reject artifacts larger than this
+    s3_bucket: str | None = None
+    s3_region: str | None = None
+    s3_endpoint_url: str | None = None     # set for Cloudflare R2 / MinIO
+    s3_public_base: str | None = None      # public URL base for the bucket
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
 
 
 settings = Settings()

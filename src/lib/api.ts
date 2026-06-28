@@ -315,6 +315,11 @@ export const api = {
   // qubit freq/coherence, gate errors/durations, coupling map — assembled from the
   // design's completed simulation results. Pure JSON (no Qiskit needed server-side).
   getQiskitTarget: (designId: string) => getJSON(`/designs/${designId}/qiskit-target`),
+  // Run a circuit against the designed chip's noise model (qiskit-aer).
+  runAerSimulation: (designId: string, circuit = "ghz", shots = 2048) =>
+    getJSON(`/designs/${designId}/aer?circuit=${circuit}&shots=${shots}`),
+  // Assemble the printable chip report / datasheet for a design.
+  getDesignReport: (designId: string) => getJSON(`/designs/${designId}/report`),
   downloadSimulationExport: (jobId: string, format: string) =>
     downloadBlob(`/simulations/${jobId}/export/${format}`, `${jobId}.${format}`),
   runYield: async (body: any) => {

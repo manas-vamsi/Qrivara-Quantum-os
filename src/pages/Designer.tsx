@@ -51,6 +51,7 @@ import {
   LayoutGrid,
   RotateCcw,
   Gauge,
+  FileText,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import QuantumNode, { type QuantumNodeData } from "@/designer/QuantumNode";
@@ -1171,6 +1172,15 @@ function DesignerCanvas() {
               <Button size="sm" variant="ghost" icon={<Download className="h-4 w-4" />} onClick={exportGds}>
                 GDS
               </Button>
+              <Tooltip content={activeDesignId ? "Open the chip datasheet (printable)" : "Save the design first"}>
+                <span>
+                  <Button size="sm" variant="ghost" icon={<FileText className="h-4 w-4" />}
+                    disabled={!activeDesignId}
+                    onClick={() => activeDesignId && window.open(`/report?id=${activeDesignId}`, "_blank")}>
+                    Report
+                  </Button>
+                </span>
+              </Tooltip>
               <Button size="sm" variant="outline" loading={simRunning} icon={<Play className="h-4 w-4" />} onClick={runSim}>
                 Simulate
               </Button>

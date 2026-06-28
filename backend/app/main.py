@@ -16,6 +16,7 @@ from .routers import (
     ai,
     auth,
     chat,
+    storage as storage_router,
     codegen,
     collaboration,
     components,
@@ -84,7 +85,7 @@ app.add_middleware(
 for module in (
     auth, projects, designs, components, materials, simulations,
     codegen, optimization, results, experiments, collaboration, search, export, ai,
-    social, chat, teams, dashboard,
+    social, chat, teams, dashboard, storage_router,
 ):
     app.include_router(module.router)
 

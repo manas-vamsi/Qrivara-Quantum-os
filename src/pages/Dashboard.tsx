@@ -29,6 +29,7 @@ import {
 import { Card, CardContent, GlowCard } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge, StatusDot } from "@/components/ui/Badge";
+import { WelcomeModal } from "@/components/layout/WelcomeModal";
 import { Progress } from "@/components/ui/Progress";
 import { AvatarGroup } from "@/components/ui/Avatar";
 import { SegmentedControl } from "@/components/ui/Form";
@@ -251,6 +252,9 @@ export default function Dashboard() {
           </div>
         </GlowCard>
       </motion.div>
+
+      {/* First-run welcome — orients new users, then never shows again */}
+      <WelcomeModal onCreate={() => setNewDesignOpen(true)} onDemo={() => navigate("/app/designer")} />
 
       {/* Guided getting-started — tells the user exactly the next step */}
       <GettingStarted

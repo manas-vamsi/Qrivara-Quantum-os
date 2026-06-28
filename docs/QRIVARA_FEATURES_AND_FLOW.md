@@ -204,12 +204,13 @@ tests** + a clean typed frontend build. Nothing is faked ("no-fake-data" rule).
 
 ## 10. What we NEED TO BUILD (and the blocker on each)
 
+Recently completed (this batch): ✅ **Production auth** — Supabase HS256 JWT verification is now implemented in `security.py` (stdlib, no dep; verifies signature + exp, rejects alg-confusion, provisions the user). ✅ **Object storage** — pluggable `storage.py` adapter (local-fs default + S3/R2 lazy), `/storage/<key>` serve endpoint, avatar-upload offload wired. ✅ **CI/CD** — `.github/workflows/ci.yml` runs backend pytest + frontend build on every push/PR. Only the *deploy to a live tenant* + a real bucket's credentials remain (config-only).
+
 | Item | Effort | Blocker / what it needs |
 |---|---|---|
 | **Activate full-wave (Palace)** | Small | The Palace MPI binary on a Linux host (WSL2/Docker on a laptop for small jobs; a VM/HPC for big). Integration is done. |
 | **Distributed/HPC compute tier** | Medium | A job queue + autoscaling cloud workers (Ray/Celery+Redis) — for 100+ qubit chips. |
-| **Production auth + multi-tenant deploy** | Medium | Wire Supabase JWT (scaffolded) + a managed cloud tenant. |
-| **Object storage** | Small | S3/R2 for GDS/large artifacts + avatars (currently in-DB). |
+| **Multi-tenant deploy** | Medium | Auth code is done (Supabase JWT); needs a managed cloud tenant + the JWT secret/bucket creds set. |
 | **Validation vs a fabricated device** | Partnership | A fab/measurement partner — the single most credibility-defining gap. |
 | **Foundry/PDK packs + tape-out DRC** | Partnership | Foundry partnerships + proprietary rule data. |
 | **Knowledge-graph at scale (Neo4j)** | Medium | A graph-DB server (the in-app dependency graph already covers the single-design case). |
@@ -227,7 +228,27 @@ tests** + a clean typed frontend build. Nothing is faked ("no-fake-data" rule).
 
 LLM API (the AI features) is usage-based: roughly **$20–200/mo** at small scale, more at usage scale; cap the free tier. Full-wave HPC is **pay-per-run** (cloud spot instances), not always-on.
 
-**Bottom line:** the science is done and runs on free/cheap infra today; money buys **compute scale, the team, and production hardening** — not "does it work."
+### Where the money actually goes — software side
+
+Almost all the *software itself is free/open-source* (your standing rule). The spend is hardware + hosted services, and most services have a free tier until you have real users.
+
+| What you pay for | For | Cost | Free until… |
+|---|---|---|---|
+| **The platform's software** (FastAPI, React, NumPy/SciPy, scqubits, QuTiP, Palace, Postgres, Valkey) | the entire stack | **$0 — free/OSS** | always free |
+| **Dev machine** ⭐ | building it smoothly | one-time (see §12) | — *(the one thing worth buying now)* |
+| Cloud compute / sim workers | running backend + simulations at scale | pay-as-you-go; scales to zero when idle | local laptop / free trial |
+| Managed Postgres (Supabase / Neon) | production database | $0 → ~$50/mo | free tier covers a pilot |
+| Object storage (S3 / Cloudflare R2) | GDS, avatars, large artifacts | ~$0.02/GB/mo | free tier |
+| Auth / SSO (Supabase) | login, university SSO | $0 → ~$25/mo | free tier |
+| Frontend hosting / CDN (Vercel / Cloudflare) | the web app | $0 → ~$20/mo | free tier |
+| LLM API (Groq / Gemini / OpenRouter) | the AI features | $0 → ~$200/mo | free/low tiers |
+| Domain + TLS | the web address | ~$12/yr; TLS free | — |
+| CI/CD + error tracking (GitHub Actions, Sentry) | quality/monitoring | $0 | free tiers |
+| Full-wave HPC (Palace) | big full-wave runs only | pay-per-run | not needed until you do full-wave at scale |
+
+**Right now (solo dev, no live users): the only thing actually worth spending money on is a capable development machine.** Everything else has a free tier until you have paying users — so today's real software-side cost is essentially **just the laptop.**
+
+**Bottom line:** the science is done and runs on free/cheap infra today; money buys **a dev machine now, then compute scale + the team + production hardening later** — not "does it work."
 
 ## 12. Hardware & dev-environment requirements (the honest version)
 
@@ -257,5 +278,25 @@ If your laptop allows it, **adding a RAM stick to 16 GB is a cheap upgrade (~$30
 **For full-scale simulation, the answer is the cloud, not your laptop:** put the backend on a
 64–256 GB cloud VM (or autoscaling workers) and your 8 GB laptop just drives the browser UI —
 which it can do fine. Don't buy a workstation to chase scale; rent compute by the hour.
+
+### The specific case: building this on a shared 8 GB company laptop
+
+Right now this is being built on an **8 GB company laptop that also runs day-job work** — and that's
+the real constraint, for three reasons:
+
+1. **Two heavy workloads, one small pool of RAM.** Company apps + QRIVARA's frontend, backend, Python
+   solver venv and a browser are all competing for 8 GB. The result is constant swapping, slow builds,
+   3-D-view render lag, and the genuine risk of QRIVARA work slowing down or interfering with paid work.
+2. **It's good enough to *learn/demo* on, not to *develop on daily*.** 8 GB runs small designs; sustained
+   development wants **16 GB minimum, 32 GB comfortable** (see the table above).
+3. **Keep the venture off employer hardware.** Building your own product on a company-owned machine can
+   blur **IP ownership** and mixes personal work with company data/security policies. A separate machine
+   keeps QRIVARA cleanly *yours* — this is standard founder caution, worth taking seriously early.
+
+**So yes — a dedicated dev laptop is a legitimate, foundational investment, not a luxury.** It's the
+*one* line item on the whole software-side budget that's worth money today (everything else is free
+until you have users), it pays for itself in development speed, and it protects your ownership of the
+work. A 16 GB machine (~$700–1,000, or a ~$30–60 RAM upgrade if your own laptop has a slot) is the
+practical target; 32 GB if you can stretch to it.
 
 *— end —*

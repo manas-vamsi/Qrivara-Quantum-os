@@ -113,6 +113,91 @@ def build_target_descriptor(results: dict[str, Any]) -> dict:
     }
 
 
+def aer_available() -> bool:
+    try:
+        import qiskit_aer  # noqa: F401
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def simulate_noisy(results: dict[str, Any], circuit: str = "ghz", shots: int = 2048) -> dict:
+    """Run a circuit against the designed chip's NOISE MODEL (qiskit-aer): build
+    thermal-relaxation (T1/T2) + depolarizing (gate-error) + readout errors from the
+    design's computed numbers, then compare the ideal vs noisy measurement outcomes.
+    The real payoff of the digital twin — "what would my chip actually produce?".
+
+    `circuit`: 'ghz' (entangle all qubits) or 'bell' (2-qubit). Returns ideal/noisy
+    counts, classical fidelity and total-variation distance, and the noise params used.
+    """
+    import math as _math
+    from qiskit import QuantumCircuit, transpile
+    from qiskit_aer import AerSimulator
+    from qiskit_aer.noise import (NoiseModel, ReadoutError, depolarizing_error,
+                                  thermal_relaxation_error)
+
+    c = _collect(results)
+    n = max(1, min(c["n"], 8))                              # cap for a fast, legible demo
+    shots = int(max(256, min(shots, 20000)))
+    t1 = max(c["t1_us"], 1.0) * 1e-6
+    t2 = min(max(c["t2_us"], 1.0) * 1e-6, 2.0 * t1)         # physical bound T2 ≤ 2 T1
+    t_1q, t_2q = max(c["t_1q_s"], 1e-9), max(c["t_2q_s"], 1e-9)
+
+    nm = NoiseModel()
+    # 1-qubit: thermal relaxation over the gate time, then a small depolarizing term
+    # for the residual (control) error beyond coherence.
+    e1 = thermal_relaxation_error(t1, t2, t_1q)
+    if c["err_1q"] > 0:
+        e1 = e1.compose(depolarizing_error(min(max(c["err_1q"], 1e-9), 0.5), 1))
+    nm.add_all_qubit_quantum_error(e1, ["sx", "x"])
+    # 2-qubit: relaxation on both qubits ⊗, then depolarizing for the 2Q gate error.
+    e2 = thermal_relaxation_error(t1, t2, t_2q).tensor(thermal_relaxation_error(t1, t2, t_2q))
+    if c["err_2q"] > 0:
+        e2 = e2.compose(depolarizing_error(min(max(c["err_2q"], 1e-9), 0.75), 2))
+    nm.add_all_qubit_quantum_error(e2, ["cx"])
+    # readout (symmetric bit-flip from the assignment fidelity)
+    p_ro = min(max(1.0 - c["ro_fid"], 0.0), 0.49)
+    nm.add_all_qubit_readout_error(ReadoutError([[1 - p_ro, p_ro], [p_ro, 1 - p_ro]]))
+
+    qc = QuantumCircuit(n, n)
+    if circuit == "bell" and n >= 2:
+        qc.h(0); qc.cx(0, 1)
+    elif n == 1:
+        circuit = "x"; qc.x(0)
+    else:
+        circuit = "ghz"; qc.h(0)
+        for i in range(n - 1):
+            qc.cx(i, i + 1)
+    qc.measure(range(n), range(n))
+
+    basis = ["rz", "sx", "x", "cx"]
+    tqc = transpile(qc, basis_gates=basis, optimization_level=1)
+    ideal = AerSimulator().run(qc, shots=shots).result().get_counts()
+    noisy = AerSimulator(noise_model=nm).run(tqc, shots=shots).result().get_counts()
+
+    # classical fidelity F = (Σ √(pᵢqᵢ))² and total-variation distance over bitstrings
+    keys = set(ideal) | set(noisy)
+    pi = {k: ideal.get(k, 0) / shots for k in keys}
+    qi = {k: noisy.get(k, 0) / shots for k in keys}
+    fidelity = sum(_math.sqrt(pi[k] * qi[k]) for k in keys) ** 2
+    tvd = 0.5 * sum(abs(pi[k] - qi[k]) for k in keys)
+
+    def top(counts):
+        return [{"state": k, "count": v, "prob": round(v / shots, 4)}
+                for k, v in sorted(counts.items(), key=lambda kv: -kv[1])[:8]]
+
+    return {
+        "circuit": circuit, "n_qubits": n, "shots": shots,
+        "ideal_counts": top(ideal), "noisy_counts": top(noisy),
+        "fidelity_pct": round(100.0 * fidelity, 2),
+        "total_variation_distance": round(tvd, 4),
+        "noise": {"T1_us": round(c["t1_us"], 1), "T2_us": round(c["t2_us"], 1),
+                  "error_1q": round(c["err_1q"], 5), "error_2q": round(c["err_2q"], 5),
+                  "readout_error": round(p_ro, 4)},
+        "method": "qiskit-aer noise model (thermal relaxation + depolarizing + readout) from the designed chip",
+    }
+
+
 def build_target(results: dict[str, Any]):
     """Construct a live qiskit.transpiler.Target from the analysis results.
     Requires `qiskit`. Raises ImportError otherwise."""

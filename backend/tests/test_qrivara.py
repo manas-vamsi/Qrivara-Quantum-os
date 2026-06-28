@@ -763,6 +763,68 @@ def test_paper_to_design_reconstruction():
     assert all("data" in n and "params" in n["data"] for n in doc["nodes"])
 
 
+def test_object_storage_local_roundtrip():
+    import base64, os, tempfile
+    from app import storage
+    from app.config import settings
+    prev_backend, prev_dir = settings.storage_backend, settings.storage_dir
+    settings.storage_backend = "local"
+    settings.storage_dir = tempfile.mkdtemp(prefix="qstore_test_")
+    try:
+        png = b"\x89PNG\r\n\x1a\n" + b"img" * 20
+        url = storage.put_data_url("data:image/png;base64," + base64.b64encode(png).decode())
+        key = url.rsplit("/", 1)[-1]
+        assert storage.is_valid_key(key)
+        assert os.path.exists(os.path.join(settings.storage_dir, key))
+        assert storage.put_data_url("data:image/png;base64," + base64.b64encode(png).decode()) == url  # dedupe
+        # path-traversal & bad keys are refused by the serve helper
+        assert storage.local_path("../config.py") is None
+        assert storage.local_path("nope") is None
+    finally:
+        settings.storage_backend, settings.storage_dir = prev_backend, prev_dir
+
+
+def test_supabase_jwt_verification():
+    import base64, hmac as _hmac, hashlib, json as _json, time as _time
+    from app import security as S
+
+    def _b64(d): return base64.urlsafe_b64encode(d).rstrip(b"=").decode()
+
+    def _mint(claims, secret, alg="HS256"):
+        h = _b64(_json.dumps({"alg": alg, "typ": "JWT"}).encode())
+        p = _b64(_json.dumps(claims).encode())
+        sig = _hmac.new(secret.encode(), f"{h}.{p}".encode(), hashlib.sha256).digest()
+        return f"{h}.{p}.{_b64(sig)}"
+
+    secret = "test-secret"
+    good = _mint({"sub": "u-1", "email": "a@lab.org", "exp": int(_time.time()) + 3600}, secret)
+    claims = S.verify_supabase_jwt(good, secret)
+    assert claims["sub"] == "u-1" and claims["email"] == "a@lab.org"
+    # wrong secret, expired, and alg=none are all rejected (401)
+    for tok, sec in [(good, "wrong"),
+                     (_mint({"sub": "u", "exp": int(_time.time()) - 5}, secret), secret),
+                     (_mint({"sub": "u"}, secret, alg="none"), secret)]:
+        with pytest.raises(HTTPException) as ei:
+            S.verify_supabase_jwt(tok, sec)
+        assert ei.value.status_code == 401
+
+
+def test_tenant_email_domain_gate():
+    from app import security as S
+    from app.config import settings
+    prev = settings.allowed_email_domains
+    try:
+        settings.allowed_email_domains = ["mit.edu", "alum.mit.edu"]
+        assert S._email_domain_allowed("a@mit.edu")
+        assert S._email_domain_allowed("b@alum.mit.edu")
+        assert not S._email_domain_allowed("x@gmail.com")   # outside the licensed domain
+        assert not S._email_domain_allowed("")              # no email → cannot verify → deny
+        settings.allowed_email_domains = []                 # open instance admits anyone
+        assert S._email_domain_allowed("anyone@anywhere.io")
+    finally:
+        settings.allowed_email_domains = prev
+
+
 def test_knowledge_graph_dependency_chain():
     r = jobs._knowledge_graph(NODES, {})
     ids = {n["id"] for n in r["nodes"]}
