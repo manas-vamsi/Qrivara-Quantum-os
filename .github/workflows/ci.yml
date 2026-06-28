@@ -29,6 +29,8 @@ jobs:
           python-version: "3.12"      # wheels available for scqubits/qutip/qiskit/scipy
           cache: pip
           cache-dependency-path: backend/requirements.txt
+      - name: System libraries (gmsh needs OpenGL/X libs on a headless runner)
+        run: sudo apt-get update && sudo apt-get install -y libglu1-mesa libgl1 libxrender1 libxcursor1 libxft2 libxinerama1
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
